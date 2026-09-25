@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowUp, Check, MessageCircle, Watch, X } from 'lucide-react';
 
 type Product = {
@@ -25,20 +25,48 @@ const products: Product[] = [
   { name: 'Chronos Smart One', price: 1099900, description: 'Funciones inteligentes en un diseño premium.', intent: 'smartwatch' },
 ];
 
-const quickReplies = ['Recomiéndame un reloj', 'Envíos y garantía', 'Hablar por WhatsApp'];
+const quickReplies = ['Pagos y cuenta', 'Envíos', 'Garantía', 'Cambios y devoluciones'];
 const formatPrice = (price: number) => `$${price.toLocaleString('es-CO')} COP`;
 
 function respondTo(message: string): { text: string; product?: Product; replies: string[] } {
   const normalized = message.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  if (/envio|garantia|devolucion|pago/.test(normalized)) {
+  if (/cuenta|numero de cuenta|consignacion|transferencia|bancari/.test(normalized)) {
     return {
-      text: 'Tenemos envío gratuito en Colombia y 12 meses de garantía. Para confirmar tiempos de entrega o medios de pago en tu ciudad, nuestro equipo te ayuda por WhatsApp.',
-      replies: ['Ver relojes deportivos', 'Hablar por WhatsApp'],
+      text: 'El comercio todavía no ha registrado su número de cuenta. No hagas transferencias hasta que los datos bancarios oficiales aparezcan aquí; nunca voy a inventar una cuenta.',
+      replies: ['Medios de pago', 'Envíos', 'Garantía'],
     };
   }
 
-  if (/whatsapp|asesor|persona|humano|comprar/.test(normalized)) {
+  if (/pago|tarjeta|pse|efectivo|contraentrega/.test(normalized)) {
+    return {
+      text: 'El comercio aún no ha publicado los medios de pago disponibles. No completes el pago hasta que esta tienda muestre sus canales oficiales y el titular de la cuenta.',
+      replies: ['Número de cuenta', 'Envíos', 'Garantía'],
+    };
+  }
+
+  if (/envio|entrega|domicilio|garantia|devolucion|cambio|reembolso/.test(normalized)) {
+    if (/garantia/.test(normalized)) {
+      return {
+        text: 'Todos los relojes incluyen 12 meses de garantía. Conserva el comprobante de compra para cualquier solicitud relacionada con la garantía.',
+        replies: ['Envíos', 'Medios de pago', 'Cambios y devoluciones'],
+      };
+    }
+
+    if (/devolucion|cambio|reembolso/.test(normalized)) {
+      return {
+        text: 'La política de cambios y devoluciones todavía no está publicada en esta tienda. Revisa esta información con el comercio antes de completar tu compra.',
+        replies: ['Medios de pago', 'Garantía', 'Envíos'],
+      };
+    }
+
+    return {
+      text: 'El envío es gratis en Colombia. Los tiempos de entrega dependen de tu ciudad y se confirman con el comercio antes de despachar.',
+      replies: ['Medios de pago', 'Garantía', 'Cambios y devoluciones'],
+    };
+  }
+
+  if (/whatsapp|asesor|persona|humano/.test(normalized)) {
     return {
       text: 'Claro. Puedes escribirle directamente a un asesor de Chronos y continuar tu compra por WhatsApp.',
       replies: ['Recomiéndame un reloj', 'Envíos y garantía'],
@@ -56,13 +84,13 @@ function respondTo(message: string): { text: string; product?: Product; replies:
     return {
       text: 'Por lo que buscas, este modelo puede encajarte:',
       product,
-      replies: ['Ver otra opción', 'Envíos y garantía', 'Hablar por WhatsApp'],
+      replies: ['Ver otra opción', 'Medios de pago', 'Envíos y garantía'],
     };
   }
 
   return {
-    text: 'Te ayudo a encontrar uno. ¿Qué estilo tienes en mente?',
-    replies: ['Deportivo', 'Elegante', 'Automático', 'Smartwatch', 'Para uso diario'],
+    text: 'Puedo ayudarte con el modelo ideal o resolver dudas antes de comprar. ¿Qué necesitas saber?',
+    replies: ['Deportivo', 'Pagos y cuenta', 'Envíos', 'Garantía', 'Cambios y devoluciones'],
   };
 }
 
@@ -73,6 +101,12 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, role: 'assistant', text: '¡Hola! Soy el asistente de Chronos. Puedo ayudarte a elegir un reloj o resolver dudas sobre tu compra.' },
   ]);
+
+  useEffect(() => {
+    const openAssistant = () => setOpen(true);
+    window.addEventListener('open-store-assistant', openAssistant);
+    return () => window.removeEventListener('open-store-assistant', openAssistant);
+  }, []);
 
   function sendMessage(value: string) {
     const text = value.trim();
@@ -127,7 +161,7 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
                         <p className="font-semibold text-stone-900">{message.product.name}</p>
                         <p className="mt-1 text-xs text-stone-500">{message.product.description}</p>
                         <p className="mt-2 font-semibold text-stone-900">{formatPrice(message.product.price)}</p>
-                        <a href={whatsappUrl(message.product)} target="_blank" rel="noreferrer" className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-[#26372e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#354b3e]">Consultar por WhatsApp <ArrowUp size={14} /></a>
+                        <button onClick={() => setOpen(false)} className="mt-3 w-full bg-[#26372e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#354b3e]">Seguir explorando la tienda</button>
                       </div>
                     </div>
                   )}
@@ -156,7 +190,7 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
 
       <button onClick={() => setOpen((current) => !current)} aria-label={open ? 'Cerrar asistente' : 'Abrir asistente de Chronos'} className="ml-auto flex h-14 items-center gap-3 rounded-full bg-[#26372e] px-5 text-white shadow-lg shadow-stone-900/20 transition-colors hover:bg-[#354b3e]">
         {open ? <X size={20} /> : <MessageCircle size={20} />}
-        <span className="text-sm font-semibold">{open ? 'Cerrar' : '¿Te ayudo a elegir?'}</span>
+        <span className="text-sm font-semibold">{open ? 'Cerrar' : 'Resuelve tus dudas'}</span>
       </button>
     </div>
   );
