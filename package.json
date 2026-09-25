@@ -1,0 +1,22 @@
+{
+  "name": "smartcommerce",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace apps/api\" \"npm run dev --workspace apps/web\"",
+    "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
+    "seed": "npm run seed --workspace apps/api",
+    "lint": "npm run lint --workspace apps/api && npm run lint --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.2",
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "concurrently": "^9.0.1"
+  }
+}
