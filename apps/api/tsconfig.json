@@ -22,7 +22,8 @@
     "moduleResolution": "node",
     "types": [
       "node",
-      "vitest/globals"
+      "vitest/globals",
+      "multer"
     ]
   },
   "include": [

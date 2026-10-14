@@ -5,10 +5,10 @@ Arquitectura de producción recomendada (barata y sin sobreingeniería):
 | Pieza | Dónde | Por qué |
 |---|---|---|
 | `apps/web` (Next.js: panel + storefront) | **Vercel** | Está hecho para Next.js; capa gratuita suficiente |
-| `apps/api` (NestJS + widget) | **Railway** o **Render** (Docker) | Proceso persistente: SSE, bus de eventos, caché, workers |
-| PostgreSQL + `pgvector` | **Neon**, **Supabase** o Postgres de Railway | Gestionado; `vector` disponible |
+| `apps/api` (NestJS + widget) | **Koyeb** (Docker) | Instancia gratuita; duerme después de 1 hora sin tráfico |
+| PostgreSQL + `pgvector` | **Neon** | Gestionado; `vector` disponible |
 | Redis (Fase 1.3+) | Railway Redis / Upstash | Colas y pub/sub |
-| Archivos (Fase 1.4) | Cloudflare R2 | S3 compatible, sin costo de egreso |
+| Imágenes | **Neon Object Storage** | S3 compatible y conectado al mismo proyecto |
 
 > **No despliegues la API en Vercel**: sus funciones cortan conexiones largas (SSE) y no mantienen
 > estado entre invocaciones. El widget no necesita proyecto propio: la API lo sirve en `/widget-assets/`.
@@ -16,33 +16,44 @@ Arquitectura de producción recomendada (barata y sin sobreingeniería):
 ## 1. Base de datos
 
 Crea un Postgres gestionado y copia la cadena de conexión. Prisma crea las extensiones `vector` y
-`pgcrypto` en la primera migración; en Neon/Supabase/Railway están permitidas. Si tu proveedor exige
+`pgcrypto` en la primera migración; Neon las permite. Si tu proveedor exige
 habilitarlas a mano: `CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;`.
 
-## 2. API en Railway (o Render)
+En **Neon Object Storage**, el bucket de imágenes debe tener acceso `public_read`; la API conserva las
+credenciales de escritura en Koyeb y el storefront solo consume las URLs públicas. Copia desde Neon el
+endpoint, la región y las dos credenciales AWS. Nunca pongas esas credenciales en Vercel ni en variables
+con prefijo `NEXT_PUBLIC_`.
 
-1. Nuevo proyecto → *Deploy from GitHub* → este repositorio.
-2. **Builder**: Dockerfile. **Dockerfile path**: `apps/api/Dockerfile`. **Root/Context**: raíz del repo (`/`).
+## 2. API en Koyeb
+
+1. *Create Web Service* → GitHub → selecciona este repositorio.
+2. **Builder**: Dockerfile. **Dockerfile path**: `apps/api/Dockerfile`. **Work directory/context**: raíz del repo (`/`). Selecciona la instancia **Free**.
 3. Variables de entorno:
 
    | Variable | Valor |
    |---|---|
    | `NODE_ENV` | `production` |
-   | `PORT` | `3001` (Railway inyecta la suya; la API la lee de `PORT`) |
-   | `DATABASE_URL` | la de tu Postgres, con `?schema=public` (y `sslmode=require` si el proveedor lo pide) |
+   | `PORT` | `8000` (Koyeb enruta el tráfico a este puerto) |
+   | `DATABASE_URL` | cadena de conexión que entrega Neon; conserva sus parámetros SSL |
    | `JWT_SECRET` | `openssl rand -hex 32` (≥ 32 caracteres; se rechazan valores de desarrollo) |
    | `FRONTEND_URL` | orígenes permitidos separados por coma, p. ej. `https://comercio.vercel.app,https://panel.tudominio.com` |
    | `AI_PROVIDER` | `gemini` (o `disabled` para el proveedor mock) |
    | `GEMINI_API_KEY` | tu clave |
    | `GEMINI_MODEL_SMALL` / `GEMINI_MODEL_LARGE` / `GEMINI_MODEL_EMBEDDING` | modelos disponibles en tu cuenta |
+   | `AWS_ENDPOINT_URL_S3` | endpoint S3 que entrega Neon Object Storage |
+   | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | credenciales del storage de Neon |
+   | `AWS_REGION` | región indicada por Neon |
+   | `S3_BUCKET` | nombre exacto del bucket público |
+   | `S3_PUBLIC_URL` | URL pública base del bucket (`endpoint/bucket`, sin barra final) |
 
-4. El contenedor ejecuta `prisma migrate deploy` al arrancar y luego la API. Verifica `https://TU-API/health`.
-5. Carga los datos de plataforma (planes y plantillas) una vez. Opción simple desde tu máquina:
+4. Configura el puerto expuesto como `8000` y el health check HTTP como `/health`.
+5. El contenedor ejecuta `prisma migrate deploy` al arrancar y luego la API. Verifica `https://TU-APP.koyeb.app/health`.
+6. Carga los datos de plataforma (planes y plantillas) una vez. Opción simple desde tu máquina:
    `DATABASE_URL=<prod> npm run seed --workspace apps/api` — **ojo**: el seed también crea el tenant
    demo `chronos-watches`; bórralo después desde la BD si no lo quieres, o crea tu comercio con
    `POST /auth/register`. (Un comando `seed:platform` sin demo llega en el bloque 1.5.)
 
-Render: *New Web Service* → Docker → mismo Dockerfile y variables. Activa *Health Check Path* `/health`.
+La instancia gratuita de Koyeb escala a cero después de una hora sin tráfico y despierta con la siguiente petición. Esto no borra imágenes ni datos, porque ambos viven en Neon.
 
 ## 3. Web en Vercel
 
@@ -82,4 +93,4 @@ página y prueba el chat. Cambia un precio y vuelve a preguntar: debe responder 
 - Redis para el bus SSE y la caché cuando haya más de una instancia de la API.
 - Observabilidad (logs estructurados, métricas, alertas) y backups automáticos de Postgres.
 - Dominio propio para la API (`api.tudominio.com`) y para el widget si usas CDN.
-- Reducir la imagen Docker (hoy ~1 GB por `node_modules` completo; `npm prune --omit=dev` en runtime baja a ~300 MB).
+- Añadir observabilidad y alertas para errores de subida y latencia de arranque en frío.

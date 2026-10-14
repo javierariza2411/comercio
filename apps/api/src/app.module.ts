@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { validateEnv } from './config/env';
 import { AiModule } from './modules/ai/ai.module';
+import { AssetsModule } from './modules/assets/assets.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
@@ -32,6 +33,7 @@ import { PrismaModule } from './prisma/prisma.module';
     OrdersModule,
     ChatModule,
     AiModule,
+    AssetsModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -7,7 +7,7 @@ de las consultas desde la web. WhatsApp queda como canal opcional de escalamient
 - [docs/arquitectura.md](./docs/arquitectura.md) — arquitectura objetivo, agente con herramientas, modelo de datos, API, decisiones y costos.
 - [docs/backlog-mvp.md](./docs/backlog-mvp.md) — historias de usuario con criterios de aceptación.
 - [docs/guia-widget.md](./docs/guia-widget.md) — instalación del widget en cualquier web.
-- [docs/guia-despliegue.md](./docs/guia-despliegue.md) — Vercel (web) + Railway/Render con Docker (API) + Postgres gestionado.
+- [docs/guia-despliegue.md](./docs/guia-despliegue.md) — Vercel (web) + Koyeb con Docker (API) + Neon.
 
 **Principio rector**: nada del negocio vive en el código. Textos, colores, precios, horarios, tono del
 bot, reglas y límites se guardan por tenant (o en plantillas de industria y planes en BD) y se editan
@@ -32,8 +32,9 @@ desde la API/panel sin redeploy.
 - **API**: NestJS 12 (ESM) · Prisma 6 · PostgreSQL 16 + pgvector · Redis · JWT (access + refresh rotativo) · Throttler · Swagger · SSE
 - **IA**: agente único con *function calling*, `LlmProvider` propio (Gemini REST, Mock), router pequeño/grande, guardrail de cifras, caché por versión de datos
 - **Widget**: `packages/widget` — loader IIFE (1,6 KB gz) + app Preact en iframe (≈10,5 KB gz)
-- **Web**: Next.js 14 (App Router) · Tailwind — panel del comercio y storefront opcional
+- **Web**: Next.js 16 + React 19 (App Router) · Tailwind — panel del comercio y storefront opcional
 - **Compartido**: `packages/shared` (tipos y utilidades de dinero)
+- **Archivos**: imágenes en almacenamiento S3 compatible (Neon Object Storage en producción, RustFS local)
 - **Infra local**: Docker Compose (Postgres, Redis, S3 compatible RustFS)
 - **Calidad**: Vitest (unitarias + e2e), ESLint 9, GitHub Actions
 
@@ -149,8 +150,8 @@ y ábrelo con `python3 -m http.server 8088`. Sin `GEMINI_API_KEY` la API usa el 
 ## Despliegue
 
 Resumen: **web en Vercel** (Root Directory `apps/web`, variable `NEXT_PUBLIC_API_URL`), **API en
-Railway/Render con `apps/api/Dockerfile`** (contexto: raíz del repo; aplica migraciones al arrancar y
-sirve el widget), Postgres gestionado con `pgvector`. No despliegues la API en Vercel (SSE y estado en
+Koyeb con `apps/api/Dockerfile`** (contexto: raíz del repo; aplica migraciones al arrancar y
+sirve el widget), Neon Postgres con `pgvector` y Neon Object Storage para imágenes. No despliegues la API en Vercel (SSE y estado en
 proceso). Guía paso a paso: [docs/guia-despliegue.md](./docs/guia-despliegue.md).
 
 ```bash
