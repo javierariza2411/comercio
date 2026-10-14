@@ -6,7 +6,8 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.module';
 import { slugify } from '../../common/slugify';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import { TemplatesService } from '../platform/templates.service';
+import { AcceptInviteDto, LoginDto, RegisterDto } from './dto/auth.dto';
 
 export interface AccessTokenPayload {
   sub: string;
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly templates: TemplatesService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -41,15 +43,16 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const slug = await this.uniqueSlug(dto.businessName);
+    // Los defaults de negocio (colores, moneda, textos) salen de la plantilla, no del código.
+    const template = dto.templateCode ? await this.templates.getByCodeOrId(dto.templateCode) : await this.templates.getDefault();
+    const templateData = this.templates.tenantDataFromTemplate(template);
 
     const { tenant, user } = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: {
           name: dto.businessName.trim(),
           slug,
-          branding: { primaryColor: '#111827', secondaryColor: '#f59e0b' },
-          settings: { currency: 'COP', locale: 'es-CO', timezone: 'America/Bogota' },
-          chatSettings: { enabled: true, aiEnabled: false, whatsappThreshold: 30 },
+          ...templateData,
           paymentSettings: { bankTransferEnabled: false },
         },
       });
@@ -93,6 +96,27 @@ export class AuthService {
     const tokenHash = this.hashToken(rawToken);
     await this.prisma.refreshToken.updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } });
     return { ok: true };
+  }
+
+  async acceptInvite(dto: AcceptInviteDto) {
+    const tokenHash = this.hashToken(dto.token);
+    const invitation = await this.prisma.invitation.findUnique({ where: { tokenHash }, include: { tenant: true } });
+    if (!invitation || invitation.acceptedAt || invitation.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invitación inválida o expirada');
+    }
+    const existing = await this.prisma.user.findUnique({ where: { email: invitation.email } });
+    if (existing) throw new ConflictException('Ya existe una cuenta con ese correo');
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const user = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { tenantId: invitation.tenantId, name: dto.name.trim(), email: invitation.email, passwordHash, role: invitation.role },
+      });
+      await tx.invitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
+      return user;
+    });
+    const tokens = await this.issueTokens(user);
+    return { ...tokens, user: this.publicUser(user), tenant: invitation.tenant };
   }
 
   findActiveUser(id: string) {

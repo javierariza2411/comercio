@@ -8,16 +8,18 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace apps/api\" \"npm run dev --workspace apps/web\"",
-    "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace packages/widget && npm run build --workspace apps/api && npm run build --workspace apps/web",
     "seed": "npm run seed --workspace apps/api",
     "lint": "npm run lint --workspace apps/api && npm run lint --workspace apps/web",
-    "typecheck": "npm run typecheck --workspace packages/shared && npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace packages/shared && npm run typecheck --workspace packages/widget && npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
     "test": "npm test --workspace apps/api",
     "test:e2e": "npm run test:e2e --workspace apps/api",
     "db:migrate": "npm run db:migrate --workspace apps/api",
     "db:deploy": "npm run db:deploy --workspace apps/api",
     "db:generate": "npm run db:generate --workspace apps/api",
-    "db:studio": "npm run db:studio --workspace apps/api"
+    "db:studio": "npm run db:studio --workspace apps/api",
+    "build:widget": "npm run build --workspace packages/widget",
+    "postinstall": "npm run build --workspace packages/shared"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

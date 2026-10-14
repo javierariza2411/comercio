@@ -52,6 +52,36 @@ enum PlanCode {
   ENTERPRISE
 }
 
+enum ChannelType {
+  WEB
+  WHATSAPP
+  SIMULATOR
+}
+
+enum ConversationStatus {
+  BOT
+  WAITING_AGENT
+  WITH_AGENT
+  CLOSED
+}
+
+enum MessageRole {
+  VISITOR
+  BOT
+  AGENT
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  PRODUCT_CARD
+  CAROUSEL
+  QUICK_REPLIES
+  FORM
+}
+
 model Tenant {
   id              String       @id @default(uuid()) @db.Uuid
   name            String
@@ -68,18 +98,174 @@ model Tenant {
   settings        Json         @default("{}")
   chatSettings    Json         @default("{}")
   paymentSettings Json         @default("{}")
+  botSettings     Json         @default("{}")
+  storefront      Json         @default("{}")
   plan            PlanCode     @default(FREE)
+  templateId      String?      @db.Uuid
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  users      User[]
-  categories Category[]
-  products   Product[]
-  variants   ProductVariant[]
-  faqs       Faq[]
-  orders     Order[]
+  template      IndustryTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  users         User[]
+  invitations   Invitation[]
+  categories    Category[]
+  products      Product[]
+  variants      ProductVariant[]
+  faqs          Faq[]
+  orders        Order[]
+  widgetKeys    WidgetKey[]
+  visitors      Visitor[]
+  conversations Conversation[]
+  messages      Message[]
+  leads         Lead[]
+  locations     Location[]
+  shippingZones ShippingZone[]
+  promotions    Promotion[]
 
   @@map("tenants")
+}
+
+/// Plantilla de industria: defaults de configuración y contenido de ejemplo (FAQs, categorías, productos).
+model IndustryTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String   @default("")
+  isDefault   Boolean  @default(false)
+  config      Json     @default("{}")
+  content     Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@map("industry_templates")
+}
+
+/// Límites por plan. Editables desde la plataforma, nunca en código.
+model Plan {
+  code      PlanCode @id
+  name      String
+  limits    Json     @default("{}")
+  features  Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@map("plans")
+}
+
+model Invitation {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @db.Uuid
+  email      String
+  role       UserRole  @default(AGENT)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("invitations")
+}
+
+model WidgetKey {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  key            String   @unique
+  name           String   @default("Sitio principal")
+  allowedDomains String[] @default([])
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("widget_keys")
+}
+
+model Visitor {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  anonId    String
+  leadId    String?  @db.Uuid
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([tenantId, anonId])
+  @@map("visitors")
+}
+
+model Conversation {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenantId      String             @db.Uuid
+  visitorId     String             @db.Uuid
+  channel       ChannelType        @default(WEB)
+  status        ConversationStatus @default(BOT)
+  assigneeId    String?            @db.Uuid
+  tags          String[]           @default([])
+  lastMessageAt DateTime           @default(now())
+  botTokensUsed Int                @default(0)
+  botTurns      Int                @default(0)
+  summary       String             @default("")
+  metadata      Json               @default("{}")
+  closedAt      DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  visitor  Visitor   @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([tenantId, status, lastMessageAt])
+  @@index([visitorId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(uuid()) @db.Uuid
+  tenantId       String      @db.Uuid
+  conversationId String      @db.Uuid
+  seq            Int
+  role           MessageRole
+  type           MessageType @default(TEXT)
+  content        Json
+  meta           Json        @default("{}")
+  createdAt      DateTime    @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, seq])
+  @@index([tenantId, createdAt])
+  @@map("messages")
+}
+
+model Lead {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @db.Uuid
+  visitorId      String?   @db.Uuid
+  conversationId String?   @db.Uuid
+  name           String    @default("")
+  email          String    @default("")
+  phone          String    @default("")
+  consentAt      DateTime?
+  consentText    String    @default("")
+  consentIp      String    @default("")
+  status         String    @default("NEW")
+  source         String    @default("widget")
+  interest       String    @default("")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("leads")
 }
 
 model User {
@@ -226,4 +412,72 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("orders")
+}
+
+enum PromotionType {
+  PERCENT
+  FIXED
+}
+
+/// Sede física o punto de atención. `hours` = { mon: [{open:"09:00",close:"18:00"}], ... }, `holidays` = ["2026-12-25"].
+model Location {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  name      String
+  address   String   @default("")
+  city      String   @default("")
+  phone     String   @default("")
+  mapsUrl   String   @default("")
+  hours     Json     @default("{}")
+  holidays  String[] @default([])
+  isMain    Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("locations")
+}
+
+model ShippingZone {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  name           String
+  cities         String[] @default([])
+  priceCents     Int      @default(0)
+  freeAboveCents Int?
+  etaMinDays     Int      @default(1)
+  etaMaxDays     Int      @default(5)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("shipping_zones")
+}
+
+model Promotion {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @db.Uuid
+  name        String
+  description String        @default("")
+  type        PromotionType @default(PERCENT)
+  value       Int
+  couponCode  String?
+  categoryIds String[]      @default([])
+  productIds  String[]      @default([])
+  startsAt    DateTime?
+  endsAt      DateTime?
+  active      Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, active])
+  @@map("promotions")
 }

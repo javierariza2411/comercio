@@ -4,7 +4,7 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(3001),
-    FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+    FRONTEND_URL: z.string().default('http://localhost:3000'),
     DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatoria'),
     REDIS_URL: z.string().default('redis://localhost:6379'),
     JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
@@ -18,6 +18,10 @@ const envSchema = z
     S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
     AI_PROVIDER: z.enum(['disabled', 'gemini', 'openai', 'anthropic']).default('disabled'),
     GEMINI_API_KEY: z.string().optional(),
+    GEMINI_MODEL_SMALL: z.string().default('gemini-2.5-flash'),
+    GEMINI_MODEL_LARGE: z.string().default('gemini-2.5-pro'),
+    GEMINI_MODEL_EMBEDDING: z.string().default('text-embedding-004'),
+    EMBEDDING_DIMENSIONS: z.coerce.number().int().default(768),
     OPENAI_API_KEY: z.string().optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
   })

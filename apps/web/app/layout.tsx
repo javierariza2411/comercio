@@ -2,7 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Chronos Watches | SmartCommerce',
+  title: 'SmartCommerce',
   description: 'Tienda demo para preventa inteligente y cierre por WhatsApp.',
 };
 

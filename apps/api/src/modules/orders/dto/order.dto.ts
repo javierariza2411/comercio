@@ -4,7 +4,7 @@ import { ArrayMaxSize, ArrayMinSize, IsEmail, IsInt, IsOptional, IsString, Max, 
 
 export class OrderItemDto {
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(200) productSlug: string;
-  @ApiProperty() @Type(() => Number) @IsInt() @Min(1) @Max(10) quantity: number;
+  @ApiProperty() @Type(() => Number) @IsInt() @Min(1) @Max(1000) quantity: number;
 }
 
 export class CreateOrderDto {
@@ -22,6 +22,6 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
   @ArrayMinSize(1)
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(200)
   items: OrderItemDto[];
 }

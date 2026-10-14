@@ -41,7 +41,7 @@ export class CreateProductDto {
   @ApiProperty({ description: 'Precio en centavos (minor units)' }) @Type(() => Number) @IsInt() @Min(0) @Max(2_000_000_000) priceCents: number;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(2_000_000_000) compareAtPriceCents?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(3, 3) currency?: string;
-  @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(500, { each: true }) images?: string[];
+  @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) @MaxLength(500, { each: true }) images?: string[];
   @ApiPropertyOptional() @IsOptional() @IsBoolean() active?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() featured?: boolean;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) stock?: number;

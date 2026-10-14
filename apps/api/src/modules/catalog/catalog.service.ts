@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma } from '@prisma/client';
 import { slugify } from '../../common/slugify';
 import { PrismaService } from '../../prisma/prisma.module';
+import { PlansService } from '../platform/plans.service';
 import {
   CreateCategoryDto,
   CreateProductDto,
@@ -37,7 +38,10 @@ const PUBLIC_PRODUCT_SELECT = {
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   // ---------- Público ----------
 
@@ -114,6 +118,7 @@ export class CatalogService {
   async createProduct(tenantId: string, dto: CreateProductDto) {
     const slug = dto.slug ?? slugify(dto.name);
     await this.assertProductSlugFree(tenantId, slug);
+    await this.assertPlanLimits(tenantId, dto, true);
     if (dto.categoryId) await this.getCategory(tenantId, dto.categoryId);
     return this.prisma.product.create({
       data: { ...dto, ...this.jsonFields(dto), slug, tenantId },
@@ -123,6 +128,7 @@ export class CatalogService {
 
   async updateProduct(tenantId: string, id: string, dto: UpdateProductDto) {
     await this.getProduct(tenantId, id);
+    await this.assertPlanLimits(tenantId, dto, false);
     if (dto.slug) await this.assertProductSlugFree(tenantId, dto.slug, id);
     if (dto.categoryId) await this.getCategory(tenantId, dto.categoryId);
     return this.prisma.product.update({
@@ -163,6 +169,18 @@ export class CatalogService {
   }
 
   // ---------- Helpers ----------
+
+  private async assertPlanLimits(tenantId: string, dto: CreateProductDto | UpdateProductDto, creating: boolean) {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { plan: true } });
+    const limits = await this.plans.getLimits(tenant.plan);
+    if (dto.images && dto.images.length > limits.imagesPerProduct) {
+      throw new ConflictException(`Tu plan permite hasta ${limits.imagesPerProduct} imágenes por producto`);
+    }
+    if (creating) {
+      const count = await this.prisma.product.count({ where: { tenantId } });
+      if (count >= limits.productsMax) throw new ConflictException(`Tu plan permite hasta ${limits.productsMax} productos`);
+    }
+  }
 
   private jsonFields(dto: CreateProductDto | UpdateProductDto) {
     return {

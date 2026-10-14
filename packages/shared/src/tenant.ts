@@ -1,9 +1,24 @@
 export type BusinessType = 'PRODUCT' | 'SERVICE' | 'MIXED';
-export type BotTone = 'formal' | 'cercano' | 'juvenil';
+export type BotTone = 'formal' | 'cercano' | 'juvenil' | 'experto';
 
 export interface Branding {
   primaryColor: string;
   secondaryColor: string;
+  fontFamily?: 'system' | 'serif' | 'rounded';
+  bubblePosition?: 'right' | 'left';
+  placeholderImageUrl?: string;
+}
+
+export interface StorefrontConfig {
+  enabled: boolean;
+  announcement: string;
+  heroKicker: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  heroImageUrl: string;
+  benefits: Array<{ title: string; body: string }>;
+  helpTitle: string;
+  helpBody: string;
 }
 
 export interface TenantSettings {
@@ -19,6 +34,9 @@ export interface ChatSettings {
   assistantName?: string;
   welcomeMessage?: string;
   tone?: BotTone;
+  quickReplies?: string[];
+  offHoursMessage?: string;
+  outOfStockMessage?: string;
 }
 
 export interface PaymentSettings {
@@ -42,5 +60,6 @@ export interface PublicTenant {
   branding: Partial<Branding>;
   settings: Partial<TenantSettings>;
   chatSettings: Partial<ChatSettings>;
+  storefront: Partial<StorefrontConfig>;
   paymentSettings: PaymentSettings;
 }

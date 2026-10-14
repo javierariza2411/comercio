@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { configureApp } from './app.setup';
+import { configureApp, defaultWidgetAssetsDir } from './app.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -12,7 +12,7 @@ async function bootstrap() {
   const port = config.get<number>('PORT', 3001);
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
 
-  configureApp(app, config.get<string>('FRONTEND_URL', 'http://localhost:3000'));
+  configureApp(app, { frontendUrls: config.get<string>('FRONTEND_URL', 'http://localhost:3000'), widgetAssetsDir: defaultWidgetAssetsDir() });
 
   if (nodeEnv !== 'production') {
     const document = SwaggerModule.createDocument(

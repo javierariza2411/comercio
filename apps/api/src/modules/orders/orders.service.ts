@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { parseConfig, tenantSettingsSchema } from '../../config/tenant-config';
 import { PrismaService } from '../../prisma/prisma.module';
+import { PlansService } from '../platform/plans.service';
 import { isBankTransferConfigured, PaymentSettings } from '../tenants/tenants.service';
 import { CreateOrderDto } from './dto/order.dto';
 
@@ -16,7 +18,10 @@ export interface OrderLine {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   async createBankTransferOrder(tenantSlug: string, dto: CreateOrderDto) {
     const tenant = await this.prisma.tenant.findUnique({ where: { slug: tenantSlug } });
@@ -27,11 +32,22 @@ export class OrdersService {
       throw new BadRequestException('Este comercio todavía no ha configurado transferencias bancarias');
     }
 
+    const limits = await this.plans.getLimits(tenant.plan);
+    if (dto.items.length > limits.orderMaxItems) {
+      throw new BadRequestException(`Un pedido admite máximo ${limits.orderMaxItems} productos distintos`);
+    }
+
     // Agrupa cantidades por slug para que el descuento de stock sea correcto si se repite un producto.
     const quantities = new Map<string, number>();
     for (const item of dto.items) {
       quantities.set(item.productSlug, (quantities.get(item.productSlug) ?? 0) + item.quantity);
     }
+    for (const [slug, quantity] of quantities) {
+      if (quantity > limits.orderMaxQtyPerItem) {
+        throw new BadRequestException(`Máximo ${limits.orderMaxQtyPerItem} unidades de ${slug} por pedido`);
+      }
+    }
+    const settings = parseConfig(tenantSettingsSchema, tenant.settings);
 
     const order = await this.prisma.$transaction(async (tx) => {
       const products = await tx.product.findMany({
@@ -70,7 +86,7 @@ export class OrdersService {
       return tx.order.create({
         data: {
           tenantId: tenant.id,
-          orderNumber: `SC-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`,
+          orderNumber: `${settings.orderPrefix}-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`,
           items: lines as unknown as Prisma.InputJsonValue,
           customer: {
             name: dto.name,
@@ -80,7 +96,7 @@ export class OrdersService {
             address: dto.address,
           },
           totalCents,
-          currency: (tenant.settings as { currency?: string } | null)?.currency ?? 'COP',
+          currency: settings.currency,
         },
       });
     });

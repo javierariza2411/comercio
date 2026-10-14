@@ -175,7 +175,8 @@ describe('SmartCommerce API (e2e)', () => {
         .set('Authorization', `Bearer ${tokenA}`)
         .send({ chatSettings: { tone: 'formal' } })
         .expect(200);
-      expect(res.body.chatSettings).toMatchObject({ tone: 'formal', enabled: true, aiEnabled: false });
+      expect(res.body.chatSettings).toMatchObject({ tone: 'formal', enabled: true });
+      expect(typeof res.body.chatSettings.welcomeMessage).toBe('string');
     });
   });
 

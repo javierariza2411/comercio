@@ -1,12 +1,14 @@
 import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.module';
+import { PlansService } from '../platform/plans.service';
 import { OrdersService } from './orders.service';
 
 describe('OrdersService.createBankTransferOrder', () => {
   const tenant = {
     id: 't1',
     slug: 'demo',
-    settings: { currency: 'COP' },
+    plan: 'FREE',
+    settings: { currency: 'COP', orderPrefix: 'PED' },
     paymentSettings: { bankTransferEnabled: true, bankName: 'B', accountNumber: '123456', accountHolder: 'Demo SAS', accountType: 'SAVINGS', instructions: '' },
   };
   const product = { id: 'p1', slug: 'reloj', name: 'Reloj', priceCents: 10_000, trackStock: true, stock: 3, active: true };
@@ -20,7 +22,8 @@ describe('OrdersService.createBankTransferOrder', () => {
       tenant: { findUnique: vi.fn().mockResolvedValue(tenant) },
       $transaction: vi.fn().mockImplementation((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     };
-    return { service: new OrdersService(prisma as unknown as PrismaService), tx, prisma };
+    const plans = { getLimits: vi.fn().mockResolvedValue({ orderMaxItems: 20, orderMaxQtyPerItem: 10 }) } as unknown as PlansService;
+    return { service: new OrdersService(prisma as unknown as PrismaService, plans), tx, prisma };
   }
 
   const dto = { name: 'Cliente', phone: '3001234567', city: 'Bogotá', address: 'Calle 1 # 2-3', items: [{ productSlug: 'reloj', quantity: 2 }, { productSlug: 'reloj', quantity: 1 }] };

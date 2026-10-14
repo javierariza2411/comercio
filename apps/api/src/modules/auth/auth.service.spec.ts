@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.module';
+import { TemplatesService } from '../platform/templates.service';
 import { AuthService } from './auth.service';
 
 function buildPrismaMock() {
@@ -22,7 +23,8 @@ describe('AuthService', () => {
 
   beforeEach(() => {
     prisma = buildPrismaMock();
-    service = new AuthService(prisma as unknown as PrismaService, jwt, config);
+    const templates = { getDefault: vi.fn().mockResolvedValue(null), tenantDataFromTemplate: vi.fn().mockReturnValue({}) } as unknown as TemplatesService;
+    service = new AuthService(prisma as unknown as PrismaService, jwt, config, templates);
   });
 
   it('rechaza login con contraseña incorrecta sin revelar si el usuario existe', async () => {

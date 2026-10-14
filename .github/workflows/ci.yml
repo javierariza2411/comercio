@@ -38,6 +38,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build --workspace packages/shared
       - run: npm run db:generate --workspace apps/api
       - run: npm run lint --workspace apps/api
       - run: npm run typecheck --workspace apps/api
@@ -59,7 +60,30 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build --workspace packages/shared
       - run: npm run db:generate --workspace apps/api
       - run: npm run lint --workspace apps/web
       - run: npm run typecheck --workspace apps/web
       - run: npm run build --workspace apps/web
+
+  widget:
+    name: Widget (typecheck, build, tamaño)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck --workspace packages/widget
+      - run: npm run build --workspace packages/widget
+      - run: npm run size --workspace packages/widget
+      - name: Presupuesto de tamaño (embed < 5 KB, widget < 50 KB gzip)
+        run: |
+          node -e "
+          const { gzipSync } = require('zlib'); const fs = require('fs');
+          const gz = (f) => gzipSync(fs.readFileSync('packages/widget/dist/' + f)).length;
+          const embed = gz('embed.js'), widget = gz('widget.js') + gz('widget.css');
+          console.log({ embed, widget });
+          if (embed > 5 * 1024 || widget > 50 * 1024) { console.error('Presupuesto de tamaño superado'); process.exit(1); }"

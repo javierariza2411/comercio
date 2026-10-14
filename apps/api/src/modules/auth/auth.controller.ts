@@ -5,7 +5,7 @@ import { AuthUser } from '../../common/auth-user';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuthService } from './auth.service';
-import { LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
+import { AcceptInviteDto, LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
 
 const AUTH_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
@@ -27,6 +27,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Iniciar sesión' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('accept-invite')
+  @Throttle(AUTH_THROTTLE)
+  @ApiOperation({ summary: 'Aceptar invitación y crear cuenta de agente/admin' })
+  acceptInvite(@Body() dto: AcceptInviteDto) {
+    return this.authService.acceptInvite(dto);
   }
 
   @Post('refresh')

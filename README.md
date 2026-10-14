@@ -4,21 +4,33 @@ Plataforma SaaS multi-tenant de **chat web para comercios**: cada negocio instal
 página, carga su conocimiento (FAQ, políticas, catálogo, documentos) y el bot resuelve la mayoría
 de las consultas desde la web. WhatsApp queda como canal opcional de escalamiento.
 
-- [docs/arquitectura.md](./docs/arquitectura.md) — arquitectura objetivo, modelo de datos, API, decisiones y costos.
+- [docs/arquitectura.md](./docs/arquitectura.md) — arquitectura objetivo, agente con herramientas, modelo de datos, API, decisiones y costos.
 - [docs/backlog-mvp.md](./docs/backlog-mvp.md) — historias de usuario con criterios de aceptación.
+- [docs/guia-widget.md](./docs/guia-widget.md) — instalación del widget en cualquier web.
+
+**Principio rector**: nada del negocio vive en el código. Textos, colores, precios, horarios, tono del
+bot, reglas y límites se guardan por tenant (o en plantillas de industria y planes en BD) y se editan
+desde la API/panel sin redeploy.
 
 ## Estado
 
 | Fase | Estado |
 |---|---|
-| 0 · Saneamiento (seguridad, multi-tenant, Postgres/Prisma, tests, CI, Docker) | ✅ Completa |
-| 1 · MVP vendible (widget, chat + RAG, conocimiento, catálogo, handoff, panel) | ⏳ Siguiente |
+| 0 · Saneamiento (seguridad, multi-tenant, Postgres/Prisma, tests, CI, Docker, config por plantilla) | ✅ Completa |
+| 1.1 · Chat en tiempo real (SSE) + widget embebible (<50 KB) + inbox de agentes | ✅ Completa |
+| 1.2 · Agente único con 10 herramientas, capa LLM intercambiable (Gemini/Mock), guardrails, simulador | ✅ Completa |
+| 1.3 · Conocimiento: ingesta PDF/Excel/texto, embeddings pgvector, FAQ exacta sin LLM, suite de evaluación | ⏳ Siguiente |
+| 1.4 · Catálogo avanzado: import/export Excel, campos personalizados, estados, fotos a S3 | Pendiente |
+| 1.5 · Panel sin código: configuración del negocio, sedes/horarios, envíos, promos, widget, simulador | Pendiente |
+| 1.6 · Leads con consentimiento en widget, notificaciones de handoff, analítica, "estuvo mal", límites | Pendiente |
 | 2 · Monetización (planes, Wompi, onboarding por URL, analítica avanzada) | Pendiente |
 | 3 · Escala (WhatsApp, 2FA, auditoría, marca blanca, observabilidad) | Pendiente |
 
 ## Stack
 
-- **API**: NestJS 12 (ESM) · Prisma 6 · PostgreSQL 16 + pgvector · Redis · JWT (access + refresh rotativo) · Throttler · Swagger
+- **API**: NestJS 12 (ESM) · Prisma 6 · PostgreSQL 16 + pgvector · Redis · JWT (access + refresh rotativo) · Throttler · Swagger · SSE
+- **IA**: agente único con *function calling*, `LlmProvider` propio (Gemini REST, Mock), router pequeño/grande, guardrail de cifras, caché por versión de datos
+- **Widget**: `packages/widget` — loader IIFE (1,6 KB gz) + app Preact en iframe (≈10,5 KB gz)
 - **Web**: Next.js 14 (App Router) · Tailwind — panel del comercio y storefront opcional
 - **Compartido**: `packages/shared` (tipos y utilidades de dinero)
 - **Infra local**: Docker Compose (Postgres, Redis, S3 compatible RustFS)
@@ -32,7 +44,8 @@ smartcommerce/
 │  ├─ api/            NestJS + Prisma (prisma/schema.prisma, src/modules/*)
 │  └─ web/            Next.js (dashboard, /tienda/[slug])
 ├─ packages/
-│  └─ shared/         tipos y helpers compartidos
+│  ├─ shared/         tipos y helpers compartidos
+│  └─ widget/         widget embebible (embed.js + widget.html)
 ├─ infra/
 │  └─ docker-compose.yml
 ├─ docs/
@@ -58,14 +71,29 @@ cp apps/web/.env.example apps/web/.env.local
 npm run db:migrate          # aplica migraciones y genera el cliente Prisma
 npm run seed                # crea el tenant demo "chronos-watches"
 
-# 5. Desarrollo
+# 5. Widget (una vez; la API lo sirve en /widget-assets/)
+npm run build:widget
+
+# 6. Desarrollo
 npm run dev
 ```
 
 - Web: http://localhost:3000 — storefront demo: http://localhost:3000/tienda/chronos-watches — panel: http://localhost:3000/dashboard
 - API: http://localhost:3001 — Swagger: http://localhost:3001/api/docs — salud: http://localhost:3001/health
 
-Usuario demo: `admin@chronoswatches.com` / `admin12345`.
+Usuario demo: `admin@chronoswatches.com` / `admin12345` · Clave de widget demo: `wk_demo_chronos` (dominios `localhost`, `127.0.0.1`).
+
+### Probar el chat en 1 minuto
+
+```bash
+# Simulador (con traza de herramientas), usando el token de login:
+curl -s -X POST localhost:3001/ai/simulate -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"text":"¿Cuánto cuesta el Diver Pro?"}' | jq '.reply, .trace.tools[].name'
+```
+
+O crea un `index.html` con `<script src="http://localhost:3001/widget-assets/embed.js" data-key="wk_demo_chronos" async></script>`
+y ábrelo con `python3 -m http.server 8088`. Sin `GEMINI_API_KEY` la API usa el proveedor **mock**
+(determinista, sin costo) que ya ejecuta las herramientas reales; con clave, `AI_PROVIDER=gemini`.
 
 > Si el puerto 5433 está ocupado: `POSTGRES_PORT=5434 docker compose -f infra/docker-compose.yml up -d`
 > y ajusta `DATABASE_URL` en `apps/api/.env`.
@@ -77,6 +105,7 @@ Usuario demo: `admin@chronoswatches.com` / `admin12345`.
 | `npm run dev` | API + web en modo desarrollo |
 | `npm run build` | Compila API y web |
 | `npm run lint` / `npm run typecheck` | Lint y tipos en todos los workspaces |
+| `npm run build:widget` | Compila `embed.js` y `widget.html` |
 | `npm test` | Pruebas unitarias de la API (Vitest) |
 | `npm run test:e2e` | Pruebas e2e de la API contra Postgres (requiere `db:migrate`) |
 | `npm run db:migrate` | `prisma migrate dev` (desarrollo) |
@@ -96,7 +125,10 @@ Usuario demo: `admin@chronoswatches.com` / `admin12345`.
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL_DAYS` | Vida del access token (15m) y del refresh (7 días) |
 | `FRONTEND_URL` | Origen permitido en CORS |
 | `S3_*` | Almacenamiento de archivos (Fase 1) |
-| `AI_PROVIDER`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | IA (Fase 1) |
+| `AI_PROVIDER` | `disabled` (mock) · `gemini` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL_SMALL`, `GEMINI_MODEL_LARGE`, `GEMINI_MODEL_EMBEDDING` | Proveedor Gemini; nombres de modelo configurables (defaults: `gemini-2.5-flash`, `gemini-2.5-pro`, `text-embedding-004`; verifica disponibilidad en tu consola) |
+| `EMBEDDING_DIMENSIONS` | 768 por defecto (bloque 1.3) |
+| `WIDGET_ASSETS_DIR` | Carpeta con el build del widget si no es `packages/widget/dist` |
 
 ### Web (`apps/web/.env.local`)
 

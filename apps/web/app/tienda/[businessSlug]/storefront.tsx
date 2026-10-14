@@ -24,10 +24,11 @@ type Product = {
 
 type CartEntry = { product: Product; quantity: number };
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1000&q=85';
+// Imagen neutra de plataforma; cada tenant puede definir la suya en branding.placeholderImageUrl.
+const PLATFORM_PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="100%" height="100%" fill="#e7e5e4"/><text x="50%" y="50%" font-family="sans-serif" font-size="28" fill="#78716c" text-anchor="middle" dominant-baseline="middle">Sin imagen</text></svg>');
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-function toViewModel(catalog: PublicCatalog): Product[] {
+function toViewModel(catalog: PublicCatalog, placeholder: string): Product[] {
   const categoryNames = new Map(catalog.categories.map((category) => [category.id, category.name]));
   return catalog.products.map((product: PublicProduct) => ({
     id: product.id,
@@ -42,7 +43,7 @@ function toViewModel(catalog: PublicCatalog): Product[] {
       .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
       .slice(0, 4)
       .map(([key, value]) => `${key.charAt(0).toUpperCase()}${key.slice(1)}: ${value}`),
-    image: product.images[0] && /^https?:\/\//.test(product.images[0]) ? product.images[0] : FALLBACK_IMAGE,
+    image: product.images[0] && /^https?:\/\//.test(product.images[0]) ? product.images[0] : placeholder,
     badge: product.featured ? 'Destacado' : undefined,
     tags: product.tags ?? [],
   }));
@@ -76,7 +77,7 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
         const [tenantData, catalogData] = await Promise.all([tenantResponse.json(), catalogResponse.json()]);
         if (cancelled) return;
         setTenant(tenantData);
-        setProducts(toViewModel(catalogData));
+        setProducts(toViewModel(catalogData, tenantData?.branding?.placeholderImageUrl || PLATFORM_PLACEHOLDER));
         setLoadState('ready');
       })
       .catch(() => !cancelled && setLoadState('error'));
@@ -86,6 +87,9 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
   const paymentSettings = tenant?.paymentSettings ?? null;
   const storeName = tenant?.name ?? 'Tienda';
   const currency = tenant?.settings?.currency ?? 'COP';
+  const sf = tenant?.storefront ?? {};
+  const brand = tenant?.branding ?? {};
+  const themeVars = { '--brand': brand.primaryColor ?? '#111827', '--accent': brand.secondaryColor ?? '#f59e0b' } as React.CSSProperties;
   const categories = useMemo(() => ['Todos', ...Array.from(new Set(products.map((product) => product.category)))], [products]);
   const cartTotal = cart.reduce((sum, entry) => sum + entry.product.priceCents * entry.quantity, 0);
 
@@ -151,10 +155,8 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f3] pb-20 text-[#1d2923]">
-      <div className="bg-[#1d2923] px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">
-        Envío gratis en Colombia · 12 meses de garantía
-      </div>
+    <main className="min-h-screen bg-[#f7f7f3] pb-20 text-[#1d2923]" style={themeVars}>
+      {sf.announcement && <div className="bg-[var(--brand)] px-4 py-2 text-center text-xs font-medium text-white sm:text-sm">{sf.announcement}</div>}
       <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-[#f7f7f3]/95 backdrop-blur">
         <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8">
           <a href="#inicio" className="flex items-center gap-3" aria-label={`${storeName}, inicio`}>
@@ -183,7 +185,7 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
         <div className="absolute inset-0 -z-20 bg-[#18251e]" />
         <div className="absolute inset-y-0 right-0 -z-10 w-full md:w-[64%]">
           <Image
-            src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1900&q=90"
+            src={sf.heroImageUrl || PLATFORM_PLACEHOLDER}
             alt={`Portada de ${storeName}`}
             fill
             priority
@@ -196,10 +198,10 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
         <div className="mx-auto flex min-h-[470px] max-w-7xl items-center px-5 py-16 sm:px-8 md:min-h-[520px]">
           <div className="max-w-xl">
             <p className="flex items-center gap-3 text-xs font-semibold uppercase text-[#d5bd8d]">
-              <span className="h-px w-8 bg-[#d5bd8d]" /> Hechos para acompañar tu tiempo
+              <span className="h-px w-8 bg-[var(--accent)]" /> {sf.heroKicker || storeName}
             </p>
-            <h1 className="mt-6 font-serif text-5xl leading-[1.04] sm:text-6xl">Cada segundo, <span className="italic text-[#d5bd8d]">a tu manera.</span></h1>
-            <p className="mt-6 max-w-md text-base leading-7 text-stone-200">{tenant?.description || 'Resuelve tus dudas y compra con confianza desde nuestra tienda.'}</p>
+            <h1 className="mt-6 font-serif text-5xl leading-[1.04] sm:text-6xl">{sf.heroTitle || `Bienvenido a ${storeName}`}</h1>
+            <p className="mt-6 max-w-md text-base leading-7 text-stone-200">{sf.heroSubtitle || tenant?.description || 'Resuelve tus dudas y compra con confianza desde nuestra tienda.'}</p>
             <a href="#coleccion" className="mt-8 inline-flex items-center gap-3 border border-[#d5bd8d] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#d5bd8d] hover:text-[#18251e]">
               Descubrir colección <ArrowRight size={16} />
             </a>
@@ -208,15 +210,11 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
             </button>
           </div>
         </div>
-        <div className="absolute bottom-7 right-8 hidden items-center gap-3 text-xs text-stone-200 md:flex"><span className="h-px w-10 bg-[#d5bd8d]" /> COLECCIÓN 2025</div>
+        
       </section>
 
       <section id="historia" className="mx-auto grid max-w-7xl gap-4 px-5 py-10 sm:grid-cols-3 sm:px-8">
-        {[
-          { title: 'Diseño con intención', body: 'Piezas que equilibran precisión y personalidad.' },
-          { title: '12 meses de garantía', body: 'Acompañamiento experto después de tu compra.' },
-          { title: 'Envío asegurado', body: 'Recibe tu pedido donde estés en Colombia.' },
-        ].map((item, index) => (
+        {(sf.benefits ?? []).map((item, index) => (
           <div key={item.title} className={`border-l-2 pl-4 ${index === 1 ? 'border-[#a88d5c]' : 'border-[#53695b]'}`}>
             <h2 className="font-serif text-lg">{item.title}</h2>
             <p className="mt-1 text-sm text-stone-500">{item.body}</p>
@@ -312,9 +310,9 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
       <section id="servicio" className="bg-[#e9e8df]">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase text-[#92784e]">Atención personal</p>
-            <h2 className="mt-2 font-serif text-3xl">¿Buscas algo especial?</h2>
-            <p className="mt-2 text-sm text-stone-600">Te ayudamos a encontrar lo que necesitas y a resolver tus dudas antes de comprar.</p>
+            <p className="text-xs font-semibold uppercase text-[#92784e]">Asistente</p>
+            <h2 className="mt-2 font-serif text-3xl">{sf.helpTitle || '¿Tienes dudas?'}</h2>
+            <p className="mt-2 text-sm text-stone-600">{sf.helpBody || 'Pregúntale a nuestro asistente antes de comprar.'}</p>
           </div>
           <button onClick={() => window.dispatchEvent(new Event('open-store-assistant'))} className="inline-flex items-center justify-center gap-2 self-start border border-[#1d2923] px-5 py-3 text-sm font-semibold transition hover:bg-[#1d2923] hover:text-white md:self-auto">Resolver mis dudas <ArrowRight size={16} /></button>
         </div>
@@ -342,7 +340,7 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
               </ul>
               <button onClick={() => { setSelectedProduct(null); window.dispatchEvent(new Event('open-store-assistant')); }} className="mt-6 flex items-center justify-center gap-2 bg-[#1d2923] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#354b3e]">Preguntar al asistente <ArrowRight size={16} /></button>
               <button onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); setCheckoutOpen(true); }} className="mt-2 flex items-center justify-center gap-2 border border-[#1d2923] px-5 py-3.5 text-sm font-semibold transition hover:bg-[#1d2923] hover:text-white"><ShoppingBag size={16} /> Agregar a la bolsa</button>
-              <p className="mt-3 text-center text-xs text-stone-500">Envío gratis · 12 meses de garantía</p>
+              <p className="mt-3 text-center text-xs text-stone-500">{sf.announcement || ''}</p>
             </div>
           </section>
         </div>
