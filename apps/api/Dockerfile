@@ -44,5 +44,5 @@ COPY --from=build /repo/apps/api/dist apps/api/dist
 ENV WIDGET_ASSETS_DIR=/repo/packages/widget/dist
 EXPOSE 3001
 USER node
-# Aplica migraciones pendientes y arranca. Koyeb no necesita un comando aparte.
+# Aplica migraciones pendientes y arranca. Render no necesita un comando aparte.
 CMD ["sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/main"]

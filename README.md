@@ -7,7 +7,7 @@ de las consultas desde la web. WhatsApp queda como canal opcional de escalamient
 - [docs/arquitectura.md](./docs/arquitectura.md) — arquitectura objetivo, agente con herramientas, modelo de datos, API, decisiones y costos.
 - [docs/backlog-mvp.md](./docs/backlog-mvp.md) — historias de usuario con criterios de aceptación.
 - [docs/guia-widget.md](./docs/guia-widget.md) — instalación del widget en cualquier web.
-- [docs/guia-despliegue.md](./docs/guia-despliegue.md) — Vercel (web) + Koyeb con Docker (API) + Neon.
+- [docs/guia-despliegue.md](./docs/guia-despliegue.md) — Vercel (web) + Render con Docker (API) + Neon.
 
 **Principio rector**: nada del negocio vive en el código. Textos, colores, precios, horarios, tono del
 bot, reglas y límites se guardan por tenant (o en plantillas de industria y planes en BD) y se editan
@@ -150,7 +150,7 @@ y ábrelo con `python3 -m http.server 8088`. Sin `GEMINI_API_KEY` la API usa el 
 ## Despliegue
 
 Resumen: **web en Vercel** (Root Directory `apps/web`, variable `NEXT_PUBLIC_API_URL`), **API en
-Koyeb con `apps/api/Dockerfile`** (contexto: raíz del repo; aplica migraciones al arrancar y
+Render con `apps/api/Dockerfile`** (contexto: raíz del repo; aplica migraciones al arrancar y
 sirve el widget), Neon Postgres con `pgvector` y Neon Object Storage para imágenes. No despliegues la API en Vercel (SSE y estado en
 proceso). Guía paso a paso: [docs/guia-despliegue.md](./docs/guia-despliegue.md).
 

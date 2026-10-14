@@ -5,7 +5,7 @@ Arquitectura de producción recomendada (barata y sin sobreingeniería):
 | Pieza | Dónde | Por qué |
 |---|---|---|
 | `apps/web` (Next.js: panel + storefront) | **Vercel** | Está hecho para Next.js; capa gratuita suficiente |
-| `apps/api` (NestJS + widget) | **Koyeb** (Docker) | Instancia gratuita; duerme después de 1 hora sin tráfico |
+| `apps/api` (NestJS + widget) | **Render** (Docker) | Instancia gratuita para pruebas; duerme tras 15 min sin tráfico |
 | PostgreSQL + `pgvector` | **Neon** | Gestionado; `vector` disponible |
 | Redis (Fase 1.3+) | Railway Redis / Upstash | Colas y pub/sub |
 | Imágenes | **Neon Object Storage** | S3 compatible y conectado al mismo proyecto |
@@ -20,20 +20,24 @@ Crea un Postgres gestionado y copia la cadena de conexión. Prisma crea las exte
 habilitarlas a mano: `CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;`.
 
 En **Neon Object Storage**, el bucket de imágenes debe tener acceso `public_read`; la API conserva las
-credenciales de escritura en Koyeb y el storefront solo consume las URLs públicas. Copia desde Neon el
+credenciales de escritura en Render y el storefront solo consume las URLs públicas. Copia desde Neon el
 endpoint, la región y las dos credenciales AWS. Nunca pongas esas credenciales en Vercel ni en variables
 con prefijo `NEXT_PUBLIC_`.
 
-## 2. API en Koyeb
+## 2. API en Render
 
-1. *Create Web Service* → GitHub → selecciona este repositorio.
-2. **Builder**: Dockerfile. **Dockerfile path**: `apps/api/Dockerfile`. **Work directory/context**: raíz del repo (`/`). Selecciona la instancia **Free**.
+La opción más segura es **New → Blueprint** y seleccionar este repositorio. Render leerá `render.yaml`,
+usará `apps/api/Dockerfile`, mantendrá el contexto en la raíz del monorepo, configurará `/health` y
+generará `JWT_SECRET`. También puedes crear un Web Service manual con esos mismos valores.
+
+1. Conecta GitHub y selecciona este repositorio y la rama `main`.
+2. Confirma **Runtime: Docker**, **Plan: Free**, Dockerfile `apps/api/Dockerfile` y contexto `.`.
 3. Variables de entorno:
 
    | Variable | Valor |
    |---|---|
    | `NODE_ENV` | `production` |
-   | `PORT` | `8000` (Koyeb enruta el tráfico a este puerto) |
+   | `PORT` | No la declares: Render inyecta `10000` y la API la lee automáticamente |
    | `DATABASE_URL` | cadena de conexión que entrega Neon; conserva sus parámetros SSL |
    | `JWT_SECRET` | `openssl rand -hex 32` (≥ 32 caracteres; se rechazan valores de desarrollo) |
    | `FRONTEND_URL` | orígenes permitidos separados por coma, p. ej. `https://comercio.vercel.app,https://panel.tudominio.com` |
@@ -46,14 +50,15 @@ con prefijo `NEXT_PUBLIC_`.
    | `S3_BUCKET` | nombre exacto del bucket público |
    | `S3_PUBLIC_URL` | URL pública base del bucket (`endpoint/bucket`, sin barra final) |
 
-4. Configura el puerto expuesto como `8000` y el health check HTTP como `/health`.
-5. El contenedor ejecuta `prisma migrate deploy` al arrancar y luego la API. Verifica `https://TU-APP.koyeb.app/health`.
+4. Usa `/health` como Health Check Path.
+5. El contenedor ejecuta `prisma migrate deploy` al arrancar y luego la API. Verifica `https://TU-APP.onrender.com/health`.
 6. Carga los datos de plataforma (planes y plantillas) una vez. Opción simple desde tu máquina:
    `DATABASE_URL=<prod> npm run seed --workspace apps/api` — **ojo**: el seed también crea el tenant
    demo `chronos-watches`; bórralo después desde la BD si no lo quieres, o crea tu comercio con
    `POST /auth/register`. (Un comando `seed:platform` sin demo llega en el bloque 1.5.)
 
-La instancia gratuita de Koyeb escala a cero después de una hora sin tráfico y despierta con la siguiente petición. Esto no borra imágenes ni datos, porque ambos viven en Neon.
+La instancia gratuita de Render se apaga después de 15 minutos sin tráfico y puede tardar cerca de un
+minuto en despertar. Esto no borra imágenes ni datos, porque ambos viven en Neon.
 
 ## 3. Web en Vercel
 
