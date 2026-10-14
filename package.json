@@ -11,7 +11,13 @@
     "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
     "seed": "npm run seed --workspace apps/api",
     "lint": "npm run lint --workspace apps/api && npm run lint --workspace apps/web",
-    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web"
+    "typecheck": "npm run typecheck --workspace packages/shared && npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
+    "test": "npm test --workspace apps/api",
+    "test:e2e": "npm run test:e2e --workspace apps/api",
+    "db:migrate": "npm run db:migrate --workspace apps/api",
+    "db:deploy": "npm run db:deploy --workspace apps/api",
+    "db:generate": "npm run db:generate --workspace apps/api",
+    "db:studio": "npm run db:studio --workspace apps/api"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
@@ -21,5 +27,8 @@
     "@prisma/client@6.19.3": true,
     "@prisma/engines@6.19.3": true,
     "@swc/core@1.16.18": true
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
