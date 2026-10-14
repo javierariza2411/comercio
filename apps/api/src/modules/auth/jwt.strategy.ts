@@ -1,29 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { AuthService } from './auth.service';
+import { AuthUser } from '../../common/auth-user';
+import { AuthService, AccessTokenPayload } from './auth.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly authService: AuthService) {
+  constructor(configService: ConfigService, private readonly authService: AuthService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'dev-secret',
+      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
     });
   }
 
-  async validate(payload: any) {
-    const user = await this.authService.validateUser(payload.sub);
+  async validate(payload: AccessTokenPayload): Promise<AuthUser> {
+    const user = await this.authService.findActiveUser(payload.sub);
     if (!user) {
-      return null;
+      throw new UnauthorizedException('Sesión inválida');
     }
-
-    return {
-      id: user._id,
-      email: user.email,
-      businessId: user.businessId,
-      role: user.role,
-    };
+    return { id: user.id, email: user.email, tenantId: user.tenantId, role: user.role };
   }
 }

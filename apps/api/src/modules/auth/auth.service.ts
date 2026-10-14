@@ -1,109 +1,135 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { User, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { User, UserDocument } from '../../database/schemas/user.schema';
-import { Business, BusinessDocument } from '../../database/schemas/business.schema';
+import { createHash, randomBytes } from 'crypto';
+import { PrismaService } from '../../prisma/prisma.module';
+import { slugify } from '../../common/slugify';
+import { LoginDto, RegisterDto } from './dto/auth.dto';
+
+export interface AccessTokenPayload {
+  sub: string;
+  email: string;
+  tenantId: string;
+  role: UserRole;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+const BCRYPT_ROUNDS = 12;
+// Hash válido de bcrypt usado para igualar el tiempo de respuesta cuando el correo no existe.
+const DUMMY_HASH = '$2a$12$C6UzMDM.H6dfI/f/IKcEeO5Yd0sD8kqGzN5kL1HJ0rG8Y5Q6xw2Qe';
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
-    @InjectModel(Business.name) private readonly businessModel: Model<BusinessDocument>,
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
-  async register(payload: { name: string; email: string; password: string; businessName: string }) {
-    const existingUser = await this.userModel.findOne({ email: payload.email.toLowerCase() });
-    if (existingUser) {
-      throw new ConflictException('Usuario ya registrado');
+  async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('Ya existe una cuenta con ese correo');
     }
 
-    const slug = this.slugify(payload.businessName);
-    const business = await this.businessModel.create({
-      name: payload.businessName,
-      slug,
-      businessType: 'PRODUCT',
-      branding: {
-        primaryColor: '#111827',
-        secondaryColor: '#f59e0b',
-      },
-      settings: {
-        currency: 'COP',
-        locale: 'es-CO',
-        timezone: 'America/Bogota',
-      },
-      chatSettings: {
-        enabled: true,
-        aiEnabled: false,
-        whatsappThreshold: 30,
-      },
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const slug = await this.uniqueSlug(dto.businessName);
+
+    const { tenant, user } = await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: dto.businessName.trim(),
+          slug,
+          branding: { primaryColor: '#111827', secondaryColor: '#f59e0b' },
+          settings: { currency: 'COP', locale: 'es-CO', timezone: 'America/Bogota' },
+          chatSettings: { enabled: true, aiEnabled: false, whatsappThreshold: 30 },
+          paymentSettings: { bankTransferEnabled: false },
+        },
+      });
+      const user = await tx.user.create({
+        data: { tenantId: tenant.id, name: dto.name.trim(), email, passwordHash, role: UserRole.OWNER },
+      });
+      return { tenant, user };
     });
 
-    const passwordHash = await bcrypt.hash(payload.password, 10);
-    const user = await this.userModel.create({
-      name: payload.name,
-      email: payload.email.toLowerCase(),
-      passwordHash,
-      businessId: business._id.toString(),
-      role: 'BUSINESS_ADMIN',
-      status: 'ACTIVE',
-    });
-
-    const token = this.jwtService.sign({ sub: user._id, email: user.email, businessId: business._id.toString(), role: user.role });
-
-    return {
-      access_token: token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        businessId: business._id,
-      },
-      business,
-    };
+    const tokens = await this.issueTokens(user);
+    return { ...tokens, user: this.publicUser(user), tenant };
   }
 
-  async login(payload: { email: string; password: string }) {
-    const user = await this.userModel.findOne({ email: payload.email.toLowerCase() });
-    if (!user) {
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+      include: { tenant: true },
+    });
+    const valid = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
+    if (!user || !valid || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const isValid = await bcrypt.compare(payload.password, user.passwordHash);
-    if (!isValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    const tokens = await this.issueTokens(user);
+    return { ...tokens, user: this.publicUser(user), tenant: user.tenant };
+  }
+
+  async refresh(rawToken: string): Promise<AuthTokens> {
+    const tokenHash = this.hashToken(rawToken);
+    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: true } });
+    if (!stored || stored.revokedAt || stored.expiresAt < new Date() || stored.user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Refresh token inválido o expirado');
     }
+    // Rotación: el token usado se revoca y se emite uno nuevo.
+    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+    return this.issueTokens(stored.user);
+  }
 
-    const business = await this.businessModel.findById(user.businessId).exec();
-    const token = this.jwtService.sign({ sub: user._id, email: user.email, businessId: user.businessId, role: user.role });
+  async logout(rawToken: string) {
+    const tokenHash = this.hashToken(rawToken);
+    await this.prisma.refreshToken.updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } });
+    return { ok: true };
+  }
 
-    return {
-      access_token: token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        businessId: user.businessId,
+  findActiveUser(id: string) {
+    return this.prisma.user.findFirst({ where: { id, status: 'ACTIVE' } });
+  }
+
+  publicUser(user: User) {
+    return { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId };
+  }
+
+  private async issueTokens(user: User): Promise<AuthTokens> {
+    const payload: AccessTokenPayload = { sub: user.id, email: user.email, tenantId: user.tenantId, role: user.role };
+    const accessToken = await this.jwtService.signAsync(payload);
+
+    const refreshToken = randomBytes(48).toString('hex');
+    const days = Number(this.config.get('JWT_REFRESH_TTL_DAYS', 7));
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: this.hashToken(refreshToken),
+        expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
       },
-      business,
-    };
+    });
+    return { accessToken, refreshToken };
   }
 
-  async validateUser(userId: string) {
-    return this.userModel.findById(userId).exec();
+  private hashToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
   }
 
-  private slugify(value: string) {
-    return value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80) || 'business';
+  private async uniqueSlug(name: string) {
+    const base = slugify(name) || 'comercio';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = attempt === 0 ? base : `${base}-${randomBytes(2).toString('hex')}`;
+      const taken = await this.prisma.tenant.findUnique({ where: { slug: candidate }, select: { id: true } });
+      if (!taken) return candidate;
+    }
+    throw new ConflictException('No fue posible generar un identificador único para el comercio');
   }
 }

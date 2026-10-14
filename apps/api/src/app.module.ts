@@ -1,26 +1,33 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { validateEnv } from './config/env';
 import { AuthModule } from './modules/auth/auth.module';
-import { BusinessesModule } from './modules/businesses/businesses.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { FaqModule } from './modules/faq/faq.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { TenantsModule } from './modules/tenants/tenants.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.local'],
+      envFilePath: ['.env', '.env.local', '../../.env'],
+      validate: validateEnv,
     }),
-    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/smartcommerce'),
+    // Límite global: 100 peticiones/min por IP. Endpoints sensibles usan @Throttle con límites más estrictos.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    PrismaModule,
     AuthModule,
-    BusinessesModule,
+    TenantsModule,
     CatalogModule,
     FaqModule,
+    OrdersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

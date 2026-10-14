@@ -1,97 +1,31 @@
 import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
-import { BusinessSchema } from '../database/schemas/business.schema';
-import { CategorySchema } from '../database/schemas/category.schema';
-import { FaqSchema } from '../database/schemas/faq.schema';
-import { ItemSchema } from '../database/schemas/item.schema';
-import { UserSchema } from '../database/schemas/user.schema';
 
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/smartcommerce';
+const prisma = new PrismaClient();
 
-const BusinessModel = mongoose.model('Business', BusinessSchema);
-const CategoryModel = mongoose.model('Category', CategorySchema);
-const ItemModel = mongoose.model('Item', ItemSchema);
-const FaqModel = mongoose.model('Faq', FaqSchema);
-const UserModel = mongoose.model('User', UserSchema);
+const TENANT_SLUG = 'chronos-watches';
+const ADMIN_EMAIL = 'admin@chronoswatches.com';
+const ADMIN_PASSWORD = 'admin12345';
 
-async function seed() {
-  await mongoose.connect(mongoUri);
+const categories = [
+  { name: 'Automáticos', slug: 'automaticos', description: 'Relojes automáticos premium', sortOrder: 1 },
+  { name: 'Cuarzo', slug: 'cuarzo', description: 'Relojes de cuarzo para uso diario', sortOrder: 2 },
+  { name: 'Deportivos', slug: 'deportivos', description: 'Resistentes para actividad', sortOrder: 3 },
+  { name: 'Elegantes', slug: 'elegantes', description: 'Diseño refinado para uso formal', sortOrder: 4 },
+  { name: 'Smartwatches', slug: 'smartwatches', description: 'Tecnología y estilo en un solo reloj', sortOrder: 5 },
+];
 
-  await Promise.all([
-    BusinessModel.deleteMany({}),
-    CategoryModel.deleteMany({}),
-    ItemModel.deleteMany({}),
-    FaqModel.deleteMany({}),
-    UserModel.deleteMany({}),
-  ]);
-
-  const business = await BusinessModel.create({
-    name: 'Chronos Watches',
-    slug: 'chronos-watches',
-    description: 'Tienda demo para relojes premium con catálogo inteligente y cierre por WhatsApp.',
-    logoUrl: '/images/chronos-logo.png',
-    businessType: 'PRODUCT',
-    phone: '+57 300 123 4567',
-    whatsappNumber: '+573001234567',
-    email: 'hola@chronoswatches.com',
-    address: {
-      country: 'Colombia',
-      city: 'Bogotá',
-      street: 'Cra 7 # 20-10',
-    },
-    socialNetworks: {
-      instagram: '@chronoswatches',
-      facebook: 'Chronos Watches',
-    },
-    branding: {
-      primaryColor: '#111827',
-      secondaryColor: '#d97706',
-    },
-    settings: {
-      currency: 'COP',
-      locale: 'es-CO',
-      timezone: 'America/Bogota',
-    },
-    chatSettings: {
-      enabled: true,
-      aiEnabled: false,
-      whatsappThreshold: 30,
-    },
-  });
-
-  const passwordHash = await bcrypt.hash('admin123', 10);
-
-  await UserModel.create({
-    name: 'Admin Chronos',
-    email: 'admin@chronoswatches.com',
-    passwordHash,
-    businessId: business._id.toString(),
-    role: 'BUSINESS_ADMIN',
-    status: 'ACTIVE',
-  });
-
-  const categories = await CategoryModel.insertMany([
-    { businessId: business._id.toString(), name: 'Automáticos', slug: 'automaticos', description: 'Relojes automáticos premium', active: true, sortOrder: 1 },
-    { businessId: business._id.toString(), name: 'Cuarzo', slug: 'cuarzo', description: 'Relojes de cuarzo para uso diario', active: true, sortOrder: 2 },
-    { businessId: business._id.toString(), name: 'Deportivos', slug: 'deportivos', description: 'Resistentes para actividad', active: true, sortOrder: 3 },
-    { businessId: business._id.toString(), name: 'Elegantes', slug: 'elegantes', description: 'Diseño refinado para uso formal', active: true, sortOrder: 4 },
-    { businessId: business._id.toString(), name: 'Smartwatches', slug: 'smartwatches', description: 'Tecnología y estilo en un solo reloj', active: true, sortOrder: 5 },
-  ]);
-
-  const categoryMap = new Map(categories.map((item) => [item.slug, item._id.toString()]));
-
-  const itemsToCreate = [
+const products = [
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('automaticos')!,
-      type: 'PRODUCT',
+      categorySlug: 'automaticos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Automatic Classic',
       slug: 'chronos-automatic-classic',
       shortDescription: 'Reloj automático clásico con estilo sobrio.',
       description: 'Modelo ideal para quienes buscan elegancia, resistencia y tradición relojera.',
-      price: 649900,
-      compareAtPrice: 749900,
+      priceCents: 649900 * 100,
+      compareAtPriceCents: 749900 * 100,
       currency: 'COP',
       images: ['/images/chronos-automatic-classic.jpg'],
       active: true,
@@ -110,15 +44,14 @@ async function seed() {
       metadata: { collection: 'Classic' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('automaticos')!,
-      type: 'PRODUCT',
+      categorySlug: 'automaticos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Heritage',
       slug: 'chronos-heritage',
       shortDescription: 'Herencia y detalle en cada detalle.',
       description: 'Reloj automático con estética clásica y personalidad premium.',
-      price: 719900,
-      compareAtPrice: 839900,
+      priceCents: 719900 * 100,
+      compareAtPriceCents: 839900 * 100,
       currency: 'COP',
       images: ['/images/chronos-heritage.jpg'],
       active: true,
@@ -137,15 +70,14 @@ async function seed() {
       metadata: { collection: 'Heritage' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('deportivos')!,
-      type: 'PRODUCT',
+      categorySlug: 'deportivos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Diver Pro',
       slug: 'chronos-diver-pro',
       shortDescription: 'Para aventuras de alto rendimiento.',
       description: 'Diseñado para quienes exigen resistencia, precisión y estilo extremo.',
-      price: 799900,
-      compareAtPrice: 929900,
+      priceCents: 799900 * 100,
+      compareAtPriceCents: 929900 * 100,
       currency: 'COP',
       images: ['/images/chronos-diver-pro.jpg'],
       active: true,
@@ -164,15 +96,14 @@ async function seed() {
       metadata: { collection: 'Adventure' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('deportivos')!,
-      type: 'PRODUCT',
+      categorySlug: 'deportivos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Sport X',
       slug: 'chronos-sport-x',
       shortDescription: 'Reloj deportivo con diseño dinámico.',
       description: 'Ligero, robusto y listo para el día a día activo.',
-      price: 689900,
-      compareAtPrice: 769900,
+      priceCents: 689900 * 100,
+      compareAtPriceCents: 769900 * 100,
       currency: 'COP',
       images: ['/images/chronos-sport-x.jpg'],
       active: true,
@@ -191,15 +122,14 @@ async function seed() {
       metadata: { collection: 'Sport' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('cuarzo')!,
-      type: 'PRODUCT',
+      categorySlug: 'cuarzo',
+      type: 'PRODUCT' as const,
       name: 'Chronos Urban',
       slug: 'chronos-urban',
       shortDescription: 'Versátil para ciudad y reuniones.',
       description: 'Reloj de cuarzo con estilo sobrio para el uso diario.',
-      price: 529900,
-      compareAtPrice: 619900,
+      priceCents: 529900 * 100,
+      compareAtPriceCents: 619900 * 100,
       currency: 'COP',
       images: ['/images/chronos-urban.jpg'],
       active: true,
@@ -218,15 +148,14 @@ async function seed() {
       metadata: { collection: 'Urban' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('cuarzo')!,
-      type: 'PRODUCT',
+      categorySlug: 'cuarzo',
+      type: 'PRODUCT' as const,
       name: 'Chronos Everyday',
       slug: 'chronos-everyday',
       shortDescription: 'Estilo discreto para cada día.',
       description: 'Simple, funcional y de fácil combinación con cualquier outfit.',
-      price: 459900,
-      compareAtPrice: 549900,
+      priceCents: 459900 * 100,
+      compareAtPriceCents: 549900 * 100,
       currency: 'COP',
       images: ['/images/chronos-everyday.jpg'],
       active: true,
@@ -245,15 +174,14 @@ async function seed() {
       metadata: { collection: 'Everyday' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('elegantes')!,
-      type: 'PRODUCT',
+      categorySlug: 'elegantes',
+      type: 'PRODUCT' as const,
       name: 'Chronos Elegance',
       slug: 'chronos-elegance',
       shortDescription: 'Reloj premium para ocasiones especiales.',
       description: 'Elegancia discreta con materiales de alta gama y diseño refinado.',
-      price: 899900,
-      compareAtPrice: 1049900,
+      priceCents: 899900 * 100,
+      compareAtPriceCents: 1049900 * 100,
       currency: 'COP',
       images: ['/images/chronos-elegance.jpg'],
       active: true,
@@ -272,15 +200,14 @@ async function seed() {
       metadata: { collection: 'Elegance' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('elegantes')!,
-      type: 'PRODUCT',
+      categorySlug: 'elegantes',
+      type: 'PRODUCT' as const,
       name: 'Chronos Noir',
       slug: 'chronos-noir',
       shortDescription: 'Negro, sobrio y sofisticado.',
       description: 'Un clásico con presencia, detalles pulidos y un diseño inolvidable.',
-      price: 959900,
-      compareAtPrice: 1124900,
+      priceCents: 959900 * 100,
+      compareAtPriceCents: 1124900 * 100,
       currency: 'COP',
       images: ['/images/chronos-noir.jpg'],
       active: true,
@@ -299,15 +226,14 @@ async function seed() {
       metadata: { collection: 'Noir' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('smartwatches')!,
-      type: 'PRODUCT',
+      categorySlug: 'smartwatches',
+      type: 'PRODUCT' as const,
       name: 'Chronos Smart One',
       slug: 'chronos-smart-one',
       shortDescription: 'Conectividad moderna con estilo premium.',
       description: 'Smartwatch con interfaz práctica, monitoreo diario y diseño elegante.',
-      price: 1099900,
-      compareAtPrice: 1269900,
+      priceCents: 1099900 * 100,
+      compareAtPriceCents: 1269900 * 100,
       currency: 'COP',
       images: ['/images/chronos-smart-one.jpg'],
       active: true,
@@ -326,15 +252,14 @@ async function seed() {
       metadata: { collection: 'Smart' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('smartwatches')!,
-      type: 'PRODUCT',
+      categorySlug: 'smartwatches',
+      type: 'PRODUCT' as const,
       name: 'Chronos Pulse',
       slug: 'chronos-pulse',
       shortDescription: 'Reloj con monitoreo inteligente.',
       description: 'Ideal para quienes buscan tecnología, estilo y salud conectada.',
-      price: 1199900,
-      compareAtPrice: 1349900,
+      priceCents: 1199900 * 100,
+      compareAtPriceCents: 1349900 * 100,
       currency: 'COP',
       images: ['/images/chronos-pulse.jpg'],
       active: true,
@@ -353,15 +278,14 @@ async function seed() {
       metadata: { collection: 'Pulse' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('automaticos')!,
-      type: 'PRODUCT',
+      categorySlug: 'automaticos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Executive',
       slug: 'chronos-executive',
       shortDescription: 'Un reloj que habla de liderazgo.',
       description: 'Diseño lujoso, preciso y muy sofisticado para ambientes profesionales.',
-      price: 1349900,
-      compareAtPrice: 1489900,
+      priceCents: 1349900 * 100,
+      compareAtPriceCents: 1489900 * 100,
       currency: 'COP',
       images: ['/images/chronos-executive.jpg'],
       active: true,
@@ -380,15 +304,14 @@ async function seed() {
       metadata: { collection: 'Executive' },
     },
     {
-      businessId: business._id.toString(),
-      categoryId: categoryMap.get('deportivos')!,
-      type: 'PRODUCT',
+      categorySlug: 'deportivos',
+      type: 'PRODUCT' as const,
       name: 'Chronos Trail',
       slug: 'chronos-trail',
       shortDescription: 'Reloj listo para recorrer senderos y rutas.',
       description: 'Diseño ligero y robusto para actividades intensas y uso cotidiano.',
-      price: 739900,
-      compareAtPrice: 839900,
+      priceCents: 739900 * 100,
+      compareAtPriceCents: 839900 * 100,
       currency: 'COP',
       images: ['/images/chronos-trail.jpg'],
       active: true,
@@ -408,11 +331,8 @@ async function seed() {
     },
   ];
 
-  await ItemModel.insertMany(itemsToCreate);
-
-  await FaqModel.insertMany([
+const faqs = [
     {
-      businessId: business._id.toString(),
       question: '¿Hacen envíos?',
       answer: 'Sí, realizamos envíos nacionales y entregas a nivel nacional.',
       keywords: ['envio', 'envios', 'domicilio', 'domicilios', 'entrega', 'entregas'],
@@ -420,7 +340,6 @@ async function seed() {
       active: true,
     },
     {
-      businessId: business._id.toString(),
       question: '¿Aceptan financiación?',
       answer: 'Sí, tenemos financiación para compras seleccionadas con condiciones especiales.',
       keywords: ['financiacion', 'financiamiento', 'cuotas', 'credito'],
@@ -428,7 +347,6 @@ async function seed() {
       active: true,
     },
     {
-      businessId: business._id.toString(),
       question: '¿Cuánto tarda la entrega?',
       answer: 'Las entregas suelen tardar entre 2 y 5 días hábiles según la ciudad.',
       keywords: ['tiempo', 'entrega', 'tarda', 'dias', 'horario'],
@@ -436,7 +354,6 @@ async function seed() {
       active: true,
     },
     {
-      businessId: business._id.toString(),
       question: '¿Ofrecen garantía?',
       answer: 'Sí, todos nuestros relojes tienen garantía de 12 meses contra defectos de fabricación.',
       keywords: ['garantia', 'seguro', 'cobertura', 'defecto'],
@@ -444,24 +361,82 @@ async function seed() {
       active: true,
     },
     {
-      businessId: business._id.toString(),
       question: '¿Tienen reloj para hombre?',
       answer: 'Sí, contamos con modelos para hombre, mujer y unisex en múltiples estilos.',
       keywords: ['hombre', 'mujer', 'unisex', 'genero'],
       category: 'catalog',
       active: true,
     },
-  ]);
+  ];
 
-  console.log('Seed ejecutado con éxito para Chronos Watches');
-  console.log('Business:', business.slug);
-  console.log('Usuario admin:', 'admin@chronoswatches.com');
-  console.log('Password:', 'admin123');
+async function seed() {
+  // Idempotente: elimina el tenant demo (cascada) y lo vuelve a crear.
+  await prisma.tenant.deleteMany({ where: { slug: TENANT_SLUG } });
 
-  await mongoose.disconnect();
+  const tenant = await prisma.tenant.create({
+    data: {
+      name: 'Chronos Watches',
+      slug: TENANT_SLUG,
+      description: 'Tienda demo para relojes premium con catálogo inteligente y cierre por WhatsApp.',
+      logoUrl: '/images/chronos-logo.png',
+      businessType: 'PRODUCT',
+      phone: '+57 300 123 4567',
+      whatsappNumber: '+573001234567',
+      email: 'hola@chronoswatches.com',
+      address: { country: 'Colombia', city: 'Bogotá', street: 'Cra 7 # 20-10' },
+      socialNetworks: { instagram: '@chronoswatches', facebook: 'Chronos Watches' },
+      branding: { primaryColor: '#111827', secondaryColor: '#d97706' },
+      settings: { currency: 'COP', locale: 'es-CO', timezone: 'America/Bogota' },
+      chatSettings: {
+        enabled: true,
+        aiEnabled: false,
+        whatsappThreshold: 30,
+        assistantName: 'Asistente Chronos',
+        tone: 'cercano',
+        welcomeMessage: '¡Hola! Soy el asistente de Chronos. Puedo ayudarte a elegir un reloj o resolver dudas sobre tu compra.',
+      },
+      paymentSettings: {
+        bankTransferEnabled: true,
+        bankName: 'Bancolombia',
+        accountType: 'SAVINGS',
+        accountNumber: '12345678901',
+        accountHolder: 'Chronos Watches SAS',
+        instructions: 'Envía el comprobante por el chat indicando tu número de pedido.',
+      },
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      name: 'Admin Chronos',
+      email: ADMIN_EMAIL,
+      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 12),
+      role: 'OWNER',
+    },
+  });
+
+  const categoryIds = new Map<string, string>();
+  for (const category of categories) {
+    const created = await prisma.category.create({ data: { ...category, tenantId: tenant.id } });
+    categoryIds.set(category.slug, created.id);
+  }
+
+  for (const { categorySlug, ...product } of products) {
+    await prisma.product.create({ data: { ...product, tenantId: tenant.id, categoryId: categoryIds.get(categorySlug) } });
+  }
+
+  await prisma.faq.createMany({ data: faqs.map((faq) => ({ ...faq, tenantId: tenant.id })) });
+
+  console.log('Seed ejecutado con éxito');
+  console.log('Tenant:', tenant.slug);
+  console.log('Usuario:', ADMIN_EMAIL);
+  console.log('Password:', ADMIN_PASSWORD);
 }
 
-seed().catch((error) => {
-  console.error('Error ejecutando seed:', error);
-  process.exit(1);
-});
+seed()
+  .catch((error) => {
+    console.error('Error ejecutando seed:', error);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

@@ -1,0 +1,55 @@
+name: smartcommerce
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: smartcommerce-postgres
+    environment:
+      POSTGRES_USER: smartcommerce
+      POSTGRES_PASSWORD: smartcommerce
+      POSTGRES_DB: smartcommerce
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartcommerce -d smartcommerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartcommerce-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Almacenamiento S3 compatible para desarrollo (MinIO ya no publica imágenes públicas).
+  # Consola: http://localhost:9001 — API S3 (path-style): http://localhost:9000
+  s3:
+    image: rustfs/rustfs:latest
+    container_name: smartcommerce-s3
+    environment:
+      RUSTFS_ACCESS_KEY: smartcommerce
+      RUSTFS_SECRET_KEY: smartcommerce123
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+    ports:
+      - "${S3_PORT:-9000}:9000"
+      - "${S3_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - s3-data:/data
+
+volumes:
+  postgres-data:
+  redis-data:
+  s3-data:

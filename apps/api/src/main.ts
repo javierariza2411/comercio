@@ -1,49 +1,34 @@
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import helmet from 'helmet';
-import compression from 'compression';
-import { AppModule } from './app.module';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const configService = app.get(ConfigService);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const config = app.get(ConfigService);
+  const port = config.get<number>('PORT', 3001);
+  const nodeEnv = config.get<string>('NODE_ENV', 'development');
 
-  const port = configService.get<number>('PORT', 3001);
-  const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
-  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
-
-  app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000'],
-    credentials: true,
-  });
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
-
-  app.use(helmet());
-  app.use(compression());
+  configureApp(app, config.get<string>('FRONTEND_URL', 'http://localhost:3000'));
 
   if (nodeEnv !== 'production') {
-    const config = new DocumentBuilder()
-      .setTitle('SmartCommerce API')
-      .setDescription('API para plataforma SaaS multi-tenant de preventa inteligente')
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build();
-
-    const document = SwaggerModule.createDocument(app, config);
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('SmartCommerce API')
+        .setDescription('API multi-tenant de chat web para comercios')
+        .setVersion('0.1')
+        .addBearerAuth()
+        .build(),
+    );
     SwaggerModule.setup('api/docs', app, document);
   }
 
   await app.listen(port);
-  console.log(`SmartCommerce API running on port ${port}`);
+  Logger.log(`SmartCommerce API escuchando en http://localhost:${port}`, 'Bootstrap');
 }
 
 bootstrap();

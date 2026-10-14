@@ -14,9 +14,12 @@
     "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.2",
-    "@types/compression": "^1.8.1",
-    "@types/cors": "^2.8.19",
     "concurrently": "^9.0.1"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "@swc/core@1.16.18": true
   }
 }

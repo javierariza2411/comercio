@@ -1,105 +1,106 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowUp, Check, MessageCircle, Watch, X } from 'lucide-react';
+import { ArrowUp, Check, MessageCircle, ShoppingBag, X } from 'lucide-react';
 
-type Product = {
+import { formatMoney } from '@smartcommerce/shared';
+
+export type ChatProduct = {
   name: string;
-  price: number;
+  slug: string;
+  priceCents: number;
+  currency: string;
   description: string;
-  intent: string;
+  category: string;
+  tags: string[];
 };
 
 type ChatMessage = {
   id: number;
   role: 'assistant' | 'visitor';
   text: string;
-  product?: Product;
+  product?: ChatProduct;
 };
 
-const products: Product[] = [
-  { name: 'Chronos Automatic Classic', price: 649900, description: 'Automático, acero inoxidable y diseño atemporal.', intent: 'automatico' },
-  { name: 'Chronos Diver Pro', price: 799900, description: 'Titanio y resistencia al agua de hasta 300 m.', intent: 'deportivo' },
-  { name: 'Chronos Urban', price: 529900, description: 'Cuarzo, perfil ligero y estilo para cada día.', intent: 'diario' },
-  { name: 'Chronos Elegance', price: 899900, description: 'Acabado refinado para ocasiones especiales.', intent: 'elegante' },
-  { name: 'Chronos Smart One', price: 1099900, description: 'Funciones inteligentes en un diseño premium.', intent: 'smartwatch' },
-];
+export type StoreChatProps = {
+  businessSlug: string;
+  storeName: string;
+  assistantName?: string;
+  welcomeMessage?: string;
+  whatsappNumber?: string;
+  products: ChatProduct[];
+};
 
 const quickReplies = ['Pagos y cuenta', 'Envíos', 'Garantía', 'Cambios y devoluciones'];
-const formatPrice = (price: number) => `$${price.toLocaleString('es-CO')} COP`;
 
-function respondTo(message: string): { text: string; product?: Product; replies: string[] } {
-  const normalized = message.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const normalize = (value: string) => value.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Respuestas basadas en reglas para la demo del storefront. No inventa datos del comercio:
+ * cuando la información no está publicada, lo dice. En Fase 1 se reemplaza por el widget + RAG.
+ */
+function respondTo(message: string, products: ChatProduct[], storeName: string): { text: string; product?: ChatProduct; replies: string[] } {
+  const normalized = normalize(message);
 
   if (/cuenta|numero de cuenta|consignacion|transferencia|bancari/.test(normalized)) {
     return {
-      text: 'El comercio todavía no ha registrado su número de cuenta. No hagas transferencias hasta que los datos bancarios oficiales aparezcan aquí; nunca voy a inventar una cuenta.',
+      text: 'Los datos bancarios oficiales aparecen al crear tu pedido en la tienda. No hagas transferencias a cuentas que no se muestren allí.',
       replies: ['Medios de pago', 'Envíos', 'Garantía'],
     };
   }
 
   if (/pago|tarjeta|pse|efectivo|contraentrega/.test(normalized)) {
     return {
-      text: 'El comercio aún no ha publicado los medios de pago disponibles. No completes el pago hasta que esta tienda muestre sus canales oficiales y el titular de la cuenta.',
+      text: 'Por ahora el comercio recibe pagos por transferencia bancaria al crear el pedido. Otros medios de pago aún no están publicados.',
       replies: ['Número de cuenta', 'Envíos', 'Garantía'],
     };
   }
 
-  if (/envio|entrega|domicilio|garantia|devolucion|cambio|reembolso/.test(normalized)) {
-    if (/garantia/.test(normalized)) {
-      return {
-        text: 'Todos los relojes incluyen 12 meses de garantía. Conserva el comprobante de compra para cualquier solicitud relacionada con la garantía.',
-        replies: ['Envíos', 'Medios de pago', 'Cambios y devoluciones'],
-      };
-    }
-
-    if (/devolucion|cambio|reembolso/.test(normalized)) {
-      return {
-        text: 'La política de cambios y devoluciones todavía no está publicada en esta tienda. Revisa esta información con el comercio antes de completar tu compra.',
-        replies: ['Medios de pago', 'Garantía', 'Envíos'],
-      };
-    }
-
+  if (/garantia|envio|entrega|domicilio|devolucion|cambio|reembolso/.test(normalized)) {
     return {
-      text: 'El envío es gratis en Colombia. Los tiempos de entrega dependen de tu ciudad y se confirman con el comercio antes de despachar.',
-      replies: ['Medios de pago', 'Garantía', 'Cambios y devoluciones'],
+      text: `Esa política todavía no está publicada por ${storeName}. Confírmala con el comercio antes de completar tu compra.`,
+      replies: ['Medios de pago', 'Recomiéndame un producto', 'Hablar con una persona'],
     };
   }
 
   if (/whatsapp|asesor|persona|humano/.test(normalized)) {
     return {
-      text: 'Claro. Puedes escribirle directamente a un asesor de Chronos y continuar tu compra por WhatsApp.',
-      replies: ['Recomiéndame un reloj', 'Envíos y garantía'],
+      text: `Claro. Puedes escribirle directamente a un asesor de ${storeName} y continuar por WhatsApp.`,
+      replies: ['Recomiéndame un producto', 'Medios de pago'],
     };
   }
 
-  let product: Product | undefined;
-  if (/deport|buce|aventura|agua/.test(normalized)) product = products.find((item) => item.intent === 'deportivo');
-  else if (/smart|digital|notificacion|tecnolog/.test(normalized)) product = products.find((item) => item.intent === 'smartwatch');
-  else if (/eleg|formal|especial/.test(normalized)) product = products.find((item) => item.intent === 'elegante');
-  else if (/automatic|clasico|tradicional/.test(normalized)) product = products.find((item) => item.intent === 'automatico');
-  else if (/diario|casual|presupuesto|econom|700|barato/.test(normalized)) product = products.find((item) => item.intent === 'diario');
+  // Recomendación simple: puntúa productos por coincidencia de tokens con nombre, categoría, tags y descripción.
+  const tokens = normalized.split(/[^a-z0-9ñ]+/).filter((token) => token.length > 3);
+  const scored = products
+    .map((product) => {
+      const haystack = normalize(`${product.name} ${product.category} ${product.tags.join(' ')} ${product.description}`);
+      const score = tokens.reduce((sum, token) => sum + (haystack.includes(token) ? 1 : 0), 0);
+      return { product, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
 
-  if (product) {
+  if (scored.length) {
     return {
-      text: 'Por lo que buscas, este modelo puede encajarte:',
-      product,
-      replies: ['Ver otra opción', 'Medios de pago', 'Envíos y garantía'],
+      text: 'Por lo que buscas, esta opción puede encajarte:',
+      product: scored[0].product,
+      replies: ['Ver otra opción', 'Medios de pago', 'Hablar con una persona'],
     };
   }
 
   return {
-    text: 'Puedo ayudarte con el modelo ideal o resolver dudas antes de comprar. ¿Qué necesitas saber?',
-    replies: ['Deportivo', 'Pagos y cuenta', 'Envíos', 'Garantía', 'Cambios y devoluciones'],
+    text: 'Puedo ayudarte a elegir un producto o resolver dudas antes de comprar. ¿Qué necesitas saber?',
+    replies: ['Recomiéndame un producto', 'Pagos y cuenta', 'Envíos', 'Garantía'],
   };
 }
 
-export default function StoreChat({ businessSlug }: { businessSlug: string }) {
+export default function StoreChat({ businessSlug, storeName, assistantName, welcomeMessage, whatsappNumber, products }: StoreChatProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [replies, setReplies] = useState(quickReplies);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 1, role: 'assistant', text: '¡Hola! Soy el asistente de Chronos. Puedo ayudarte a elegir un reloj o resolver dudas sobre tu compra.' },
+    { id: 1, role: 'assistant', text: welcomeMessage || `¡Hola! Soy el asistente de ${storeName}. Puedo ayudarte a elegir un producto o resolver dudas sobre tu compra.` },
   ]);
 
   useEffect(() => {
@@ -111,7 +112,7 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
   function sendMessage(value: string) {
     const text = value.trim();
     if (!text) return;
-    const response = respondTo(text);
+    const response = respondTo(text, products, storeName);
     setMessages((current) => [
       ...current,
       { id: Date.now(), role: 'visitor', text },
@@ -126,22 +127,23 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
     sendMessage(draft);
   }
 
-  const whatsappUrl = (product?: Product) => {
+  const whatsappUrl = (product?: ChatProduct) => {
     const text = product
       ? `Hola, vi ${product.name} en la tienda ${businessSlug} y quisiera más información.`
-      : 'Hola, quisiera más información sobre los relojes Chronos.';
-    return `https://wa.me/573001234567?text=${encodeURIComponent(text)}`;
+      : `Hola, quisiera más información sobre los productos de ${storeName}.`;
+    const phone = (whatsappNumber || '').replace(/\D/g, '');
+    return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : '';
   };
 
   return (
     <div className="fixed bottom-5 right-5 z-50 sm:bottom-7 sm:right-7">
       {open && (
-        <section aria-label="Asistente de Chronos Watches" className="mb-4 flex h-[min(620px,calc(100dvh-110px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl shadow-stone-900/20">
+        <section aria-label={`Asistente de ${storeName}`} className="mb-4 flex h-[min(620px,calc(100dvh-110px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl shadow-stone-900/20">
           <header className="flex items-center justify-between bg-[#17211d] px-5 py-4 text-white">
             <div className="flex items-center gap-3">
-              <span className="grid size-10 place-items-center rounded-full bg-[#c8a66a] text-[#17211d]"><Watch size={19} /></span>
+              <span className="grid size-10 place-items-center rounded-full bg-[#c8a66a] text-[#17211d]"><MessageCircle size={19} /></span>
               <div>
-                <p className="font-semibold">Asistente Chronos</p>
+                <p className="font-semibold">{assistantName || `Asistente ${storeName}`}</p>
                 <p className="mt-0.5 flex items-center gap-1.5 text-xs text-stone-300"><span className="size-1.5 rounded-full bg-emerald-400" /> Disponible ahora</p>
               </div>
             </div>
@@ -156,16 +158,16 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
                   <p>{message.text}</p>
                   {message.product && (
                     <div className="mt-3 overflow-hidden rounded-xl border border-stone-200 bg-stone-50">
-                      <div className="flex h-24 items-center justify-center bg-[linear-gradient(135deg,#e5e1d8,#f5f1e8_52%,#d7c39d)] text-[#4b5145]"><Watch size={34} strokeWidth={1.2} /></div>
+                      <div className="flex h-24 items-center justify-center bg-[linear-gradient(135deg,#e5e1d8,#f5f1e8_52%,#d7c39d)] text-[#4b5145]"><ShoppingBag size={34} strokeWidth={1.2} /></div>
                       <div className="p-3">
                         <p className="font-semibold text-stone-900">{message.product.name}</p>
                         <p className="mt-1 text-xs text-stone-500">{message.product.description}</p>
-                        <p className="mt-2 font-semibold text-stone-900">{formatPrice(message.product.price)}</p>
+                        <p className="mt-2 font-semibold text-stone-900">{formatMoney(message.product.priceCents, message.product.currency)}</p>
                         <button onClick={() => setOpen(false)} className="mt-3 w-full bg-[#26372e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#354b3e]">Seguir explorando la tienda</button>
                       </div>
                     </div>
                   )}
-                  {message.role === 'assistant' && !message.product && /WhatsApp/.test(message.text) && (
+                  {message.role === 'assistant' && !message.product && /WhatsApp/.test(message.text) && whatsappUrl() && (
                     <a href={whatsappUrl()} target="_blank" rel="noreferrer" className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-[#26372e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#354b3e]">Abrir WhatsApp <ArrowUp size={14} /></a>
                   )}
                 </div>
@@ -188,7 +190,7 @@ export default function StoreChat({ businessSlug }: { businessSlug: string }) {
         </section>
       )}
 
-      <button onClick={() => setOpen((current) => !current)} aria-label={open ? 'Cerrar asistente' : 'Abrir asistente de Chronos'} className="ml-auto flex h-14 items-center gap-3 rounded-full bg-[#26372e] px-5 text-white shadow-lg shadow-stone-900/20 transition-colors hover:bg-[#354b3e]">
+      <button onClick={() => setOpen((current) => !current)} aria-label={open ? 'Cerrar asistente' : `Abrir asistente de ${storeName}`} className="ml-auto flex h-14 items-center gap-3 rounded-full bg-[#26372e] px-5 text-white shadow-lg shadow-stone-900/20 transition-colors hover:bg-[#354b3e]">
         {open ? <X size={20} /> : <MessageCircle size={20} />}
         <span className="text-sm font-semibold">{open ? 'Cerrar' : 'Resuelve tus dudas'}</span>
       </button>
