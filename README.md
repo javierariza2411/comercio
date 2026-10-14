@@ -7,6 +7,7 @@ de las consultas desde la web. WhatsApp queda como canal opcional de escalamient
 - [docs/arquitectura.md](./docs/arquitectura.md) — arquitectura objetivo, agente con herramientas, modelo de datos, API, decisiones y costos.
 - [docs/backlog-mvp.md](./docs/backlog-mvp.md) — historias de usuario con criterios de aceptación.
 - [docs/guia-widget.md](./docs/guia-widget.md) — instalación del widget en cualquier web.
+- [docs/guia-despliegue.md](./docs/guia-despliegue.md) — Vercel (web) + Railway/Render con Docker (API) + Postgres gestionado.
 
 **Principio rector**: nada del negocio vive en el código. Textos, colores, precios, horarios, tono del
 bot, reglas y límites se guardan por tenant (o en plantillas de industria y planes en BD) y se editan
@@ -145,12 +146,17 @@ y ábrelo con `python3 -m http.server 8088`. Sin `GEMINI_API_KEY` la API usa el 
 - Pedidos: reserva de stock condicional dentro de una transacción (no hay stock negativo bajo concurrencia).
 - Precios en **centavos enteros** (`priceCents`) para compatibilidad con pasarelas.
 
-## Despliegue (referencia)
+## Despliegue
 
-- **API** en Railway/Render: build `npm run build --workspace apps/api`, start `node apps/api/dist/main`,
-  ejecutar `npm run db:deploy --workspace apps/api` en el release. Postgres gestionado con extensión `vector`.
-- **Web** en Vercel: root `apps/web`, variable `NEXT_PUBLIC_API_URL`.
-- Guía detallada de producción: pendiente para el cierre de la Fase 1.
+Resumen: **web en Vercel** (Root Directory `apps/web`, variable `NEXT_PUBLIC_API_URL`), **API en
+Railway/Render con `apps/api/Dockerfile`** (contexto: raíz del repo; aplica migraciones al arrancar y
+sirve el widget), Postgres gestionado con `pgvector`. No despliegues la API en Vercel (SSE y estado en
+proceso). Guía paso a paso: [docs/guia-despliegue.md](./docs/guia-despliegue.md).
+
+```bash
+docker build -f apps/api/Dockerfile -t smartcommerce-api .
+docker run -p 3001:3001 -e DATABASE_URL=... -e JWT_SECRET=... -e FRONTEND_URL=https://tu-web smartcommerce-api
+```
 
 ## Troubleshooting
 
