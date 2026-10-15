@@ -20,6 +20,8 @@ type Product = {
   image: string;
   badge?: string;
   tags: string[];
+  discountPercent: number;
+  offerEndsAt?: string;
 };
 
 type CartEntry = { product: Product; quantity: number };
@@ -30,12 +32,17 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 function toViewModel(catalog: PublicCatalog, placeholder: string): Product[] {
   const categoryNames = new Map(catalog.categories.map((category) => [category.id, category.name]));
-  return catalog.products.map((product: PublicProduct) => ({
+  return catalog.products.map((product: PublicProduct) => {
+    const offer = product.metadata?.offer as { enabled?: boolean; percent?: number; startsAt?: string; endsAt?: string } | undefined;
+    const now = Date.now();
+    const offerActive = Boolean(offer?.enabled && product.compareAtPriceCents && now >= (offer.startsAt ? Date.parse(offer.startsAt) : Number.NEGATIVE_INFINITY) && now <= (offer.endsAt ? Date.parse(offer.endsAt) : Number.POSITIVE_INFINITY));
+    const managedOfferInactive = Boolean(offer && !offerActive && product.compareAtPriceCents);
+    return ({
     id: product.id,
     name: product.name,
     slug: product.slug,
-    priceCents: product.priceCents,
-    compareAtPriceCents: product.compareAtPriceCents,
+    priceCents: managedOfferInactive ? (product.compareAtPriceCents || product.priceCents) : product.priceCents,
+    compareAtPriceCents: managedOfferInactive ? null : product.compareAtPriceCents,
     currency: product.currency,
     category: (product.categoryId && categoryNames.get(product.categoryId)) || 'General',
     description: product.description || product.shortDescription,
@@ -44,9 +51,12 @@ function toViewModel(catalog: PublicCatalog, placeholder: string): Product[] {
       .slice(0, 4)
       .map(([key, value]) => `${key.charAt(0).toUpperCase()}${key.slice(1)}: ${value}`),
     image: product.images[0] && /^https?:\/\//.test(product.images[0]) ? product.images[0] : placeholder,
-    badge: product.featured ? 'Destacado' : undefined,
+    badge: offerActive ? `-${offer?.percent ?? 0}%` : product.featured ? 'Destacado' : undefined,
     tags: product.tags ?? [],
-  }));
+    discountPercent: offerActive ? Number(offer?.percent || 0) : 0,
+    offerEndsAt: offerActive ? offer?.endsAt : undefined,
+  });
+  });
 }
 
 export default function Storefront({ businessSlug }: { businessSlug: string }) {
@@ -282,8 +292,9 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
                       <h3 className="mt-1 font-serif text-2xl">{product.name}</h3>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-sm font-semibold">{formatMoney(product.priceCents, product.currency)}</p>
+                      <p className={product.discountPercent ? 'text-base font-bold text-red-700' : 'text-sm font-semibold'}>{formatMoney(product.priceCents, product.currency)}</p>
                       {product.compareAtPriceCents ? <p className="mt-0.5 text-xs text-stone-400 line-through">{formatMoney(product.compareAtPriceCents, product.currency)}</p> : null}
+                      {product.offerEndsAt ? <p className="mt-1 text-[10px] font-medium text-red-700">Hasta {new Date(product.offerEndsAt).toLocaleDateString('es-CO')}</p> : null}
                     </div>
                   </div>
                   <div className="mt-4 flex gap-2">
@@ -334,6 +345,7 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
               <p className="text-xs font-semibold uppercase text-[#92784e]">{selectedProduct.category}</p>
               <h2 id="quick-view-title" className="mt-2 font-serif text-4xl">{selectedProduct.name}</h2>
               <p className="mt-4 text-2xl font-semibold">{formatMoney(selectedProduct.priceCents, selectedProduct.currency)} {selectedProduct.compareAtPriceCents ? <span className="ml-2 text-base font-normal text-stone-400 line-through">{formatMoney(selectedProduct.compareAtPriceCents, selectedProduct.currency)}</span> : null}</p>
+              {selectedProduct.discountPercent ? <p className="mt-2 inline-flex self-start bg-red-700 px-3 py-1 text-xs font-bold text-white">Ahorras {selectedProduct.discountPercent}%{selectedProduct.offerEndsAt ? ` · hasta ${new Date(selectedProduct.offerEndsAt).toLocaleDateString('es-CO')}` : ''}</p> : null}
               <p className="mt-5 text-sm leading-6 text-stone-600">{selectedProduct.description}</p>
               <ul className="mt-6 space-y-3 border-y border-stone-300 py-5">
                 {selectedProduct.specs.map((spec) => <li key={spec} className="flex items-center gap-2 text-sm text-stone-700"><Check size={15} className="text-[#75866f]" /> {spec}</li>)}

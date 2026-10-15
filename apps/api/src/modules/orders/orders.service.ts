@@ -59,7 +59,8 @@ export class OrdersService {
       for (const [slug, quantity] of quantities) {
         const product = bySlug.get(slug);
         if (!product) throw new BadRequestException(`El producto ${slug} ya no está disponible`);
-        if (product.priceCents <= 0) throw new BadRequestException(`El precio de ${product.name} no es válido`);
+        const unitPriceCents = effectiveProductPrice(product);
+        if (unitPriceCents <= 0) throw new BadRequestException(`El precio de ${product.name} no es válido`);
 
         if (product.trackStock) {
           // Decremento condicional: si otra transacción agotó el stock, count = 0 y se revierte todo.
@@ -74,9 +75,9 @@ export class OrdersService {
           productId: product.id,
           productSlug: slug,
           name: product.name,
-          unitPriceCents: product.priceCents,
+          unitPriceCents,
           quantity,
-          lineTotalCents: product.priceCents * quantity,
+          lineTotalCents: unitPriceCents * quantity,
         });
       }
 
@@ -128,4 +129,16 @@ export class OrdersService {
     if (updated.count === 0) throw new NotFoundException('Pedido pendiente no encontrado');
     return this.prisma.order.findUnique({ where: { orderNumber } });
   }
+}
+
+function effectiveProductPrice(product: { priceCents: number; compareAtPriceCents: number | null; metadata: unknown }) {
+  if (!product.compareAtPriceCents) return product.priceCents;
+  const offer = (product.metadata as { offer?: { enabled?: boolean; startsAt?: string; endsAt?: string } } | null)?.offer;
+  // Productos antiguos ya usaban compareAtPriceCents como referencia visual sin vigencia administrada.
+  if (!offer) return product.priceCents;
+  if (!offer?.enabled) return product.compareAtPriceCents;
+  const now = Date.now();
+  const startsAt = offer.startsAt ? Date.parse(offer.startsAt) : Number.NEGATIVE_INFINITY;
+  const endsAt = offer.endsAt ? Date.parse(offer.endsAt) : Number.POSITIVE_INFINITY;
+  return now >= startsAt && now <= endsAt ? product.priceCents : product.compareAtPriceCents;
 }

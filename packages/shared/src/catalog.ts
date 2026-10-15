@@ -35,6 +35,7 @@ export interface PublicProduct {
   trackStock: boolean;
   attributes: Record<string, unknown>;
   tags: string[];
+  metadata: Record<string, unknown>;
   variants: PublicVariant[];
 }
 

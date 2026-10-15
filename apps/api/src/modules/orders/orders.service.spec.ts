@@ -11,7 +11,7 @@ describe('OrdersService.createBankTransferOrder', () => {
     settings: { currency: 'COP', orderPrefix: 'PED' },
     paymentSettings: { bankTransferEnabled: true, bankName: 'B', accountNumber: '123456', accountHolder: 'Demo SAS', accountType: 'SAVINGS', instructions: '' },
   };
-  const product = { id: 'p1', slug: 'reloj', name: 'Reloj', priceCents: 10_000, trackStock: true, stock: 3, active: true };
+  const product = { id: 'p1', slug: 'reloj', name: 'Reloj', priceCents: 10_000, compareAtPriceCents: null, metadata: {}, trackStock: true, stock: 3, active: true };
 
   function buildService(updateCount: number) {
     const tx = {

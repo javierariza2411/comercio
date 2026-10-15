@@ -30,6 +30,7 @@ const PUBLIC_PRODUCT_SELECT = {
   trackStock: true,
   attributes: true,
   tags: true,
+  metadata: true,
   variants: {
     where: { active: true },
     select: { id: true, name: true, sku: true, priceCents: true, stock: true, attributes: true, imageUrl: true },

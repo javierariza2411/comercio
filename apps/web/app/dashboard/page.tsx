@@ -18,11 +18,15 @@ type CatalogProduct = {
   name: string;
   description: string;
   priceCents: number;
+  compareAtPriceCents: number | null;
   currency: string;
   stock: number;
   active: boolean;
   images: string[];
+  metadata: { offer?: OfferMetadata };
 };
+
+type OfferMetadata = { enabled: boolean; percent: number; startsAt?: string; endsAt?: string };
 
 type ProductForm = {
   name: string;
@@ -30,6 +34,10 @@ type ProductForm = {
   price: string;
   stock: string;
   image: File | null;
+  discountEnabled: boolean;
+  discountPercent: string;
+  offerStartsAt: string;
+  offerEndsAt: string;
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -41,7 +49,7 @@ const emptyPaymentForm: PaymentForm = {
   accountHolder: '',
   instructions: '',
 };
-const emptyProductForm: ProductForm = { name: '', description: '', price: '', stock: '0', image: null };
+const emptyProductForm: ProductForm = { name: '', description: '', price: '', stock: '0', image: null, discountEnabled: false, discountPercent: '10', offerStartsAt: '', offerEndsAt: '' };
 
 export default function DashboardPage() {
   const [credentials, setCredentials] = useState({ email: '', password: '' });
@@ -129,11 +137,20 @@ export default function DashboardPage() {
         body: JSON.stringify({
           name: product.name,
           description: product.description,
-          priceCents: Math.round(Number(product.price) * 100),
+          priceCents: discountedPriceCents(product),
+          compareAtPriceCents: product.discountEnabled ? Math.round(Number(product.price) * 100) : null,
           stock: Number(product.stock),
           trackStock: true,
           currency: 'COP',
           images,
+          metadata: {
+            offer: {
+              enabled: product.discountEnabled,
+              percent: product.discountEnabled ? Number(product.discountPercent) : 0,
+              startsAt: product.offerStartsAt ? new Date(product.offerStartsAt).toISOString() : undefined,
+              endsAt: product.offerEndsAt ? new Date(product.offerEndsAt).toISOString() : undefined,
+            },
+          },
         }),
       });
       const result = await response.json();
@@ -182,12 +199,18 @@ export default function DashboardPage() {
     resetProductForm();
     setEditingProductId(item.id);
     setExistingImage(item.images[0] || '');
+    const offer = item.metadata?.offer;
+    const basePriceCents = item.compareAtPriceCents || item.priceCents;
     setProduct({
       name: item.name,
       description: item.description || '',
-      price: String(item.priceCents / 100),
+      price: String(basePriceCents / 100),
       stock: String(item.stock),
       image: null,
+      discountEnabled: Boolean(offer?.enabled && item.compareAtPriceCents),
+      discountPercent: String(offer?.percent || discountPercent(item.priceCents, item.compareAtPriceCents) || 10),
+      offerStartsAt: toLocalDateTime(offer?.startsAt),
+      offerEndsAt: toLocalDateTime(offer?.endsAt),
     });
     setError('');
     setNotice('');
@@ -336,6 +359,27 @@ export default function DashboardPage() {
                         <input required min="0" step="1" type="number" value={product.stock} onChange={(event) => setProduct({ ...product, stock: event.target.value })} className="mt-2 w-full border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" />
                       </label>
                     </div>
+                    <div className="border border-stone-200 bg-stone-50 p-4">
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input type="checkbox" checked={product.discountEnabled} onChange={(event) => setProduct({ ...product, discountEnabled: event.target.checked })} className="mt-1 size-4 accent-[#20352b]" />
+                        <span><span className="block text-sm font-semibold">Oferta o descuento</span><span className="mt-1 block text-xs text-stone-500">Muestra el precio anterior, el descuento y su vigencia en la tienda.</span></span>
+                      </label>
+                      {product.discountEnabled && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <label className="text-sm font-medium">Descuento (%)
+                          <input required min="1" max="99" step="1" type="number" value={product.discountPercent} onChange={(event) => setProduct({ ...product, discountPercent: event.target.value })} className="mt-2 w-full border border-stone-300 bg-white px-3 py-3 outline-none focus:border-[#53695b]" />
+                        </label>
+                        <div className="border-l-2 border-emerald-600 bg-white px-3 py-2 text-sm">
+                          <span className="block text-xs text-stone-500">Precio con descuento</span>
+                          <strong className="mt-1 block text-emerald-700">{formatMoney(discountedPriceCents(product), 'COP')}</strong>
+                        </div>
+                        <label className="text-sm font-medium">Inicia <span className="font-normal text-stone-500">(opcional)</span>
+                          <input type="datetime-local" value={product.offerStartsAt} onChange={(event) => setProduct({ ...product, offerStartsAt: event.target.value })} className="mt-2 w-full border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                        </label>
+                        <label className="text-sm font-medium">Finaliza <span className="font-normal text-stone-500">(opcional)</span>
+                          <input type="datetime-local" min={product.offerStartsAt || undefined} value={product.offerEndsAt} onChange={(event) => setProduct({ ...product, offerEndsAt: event.target.value })} className="mt-2 w-full border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                        </label>
+                      </div>}
+                    </div>
                     <label
                       onDragEnter={(event) => { event.preventDefault(); setDraggingImage(true); }}
                       onDragOver={(event) => event.preventDefault()}
@@ -366,6 +410,7 @@ export default function DashboardPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-semibold">{item.name}</p>
                             <p className="mt-1 text-sm text-stone-600">{formatMoney(item.priceCents, item.currency)} · {item.stock} disponibles</p>
+                            {item.metadata?.offer?.enabled && item.compareAtPriceCents ? <p className="mt-1 text-xs font-semibold text-red-700">Oferta {item.metadata.offer.percent}% · base {formatMoney(item.compareAtPriceCents, item.currency)}</p> : null}
                             <p className={`mt-2 text-xs font-medium ${item.active ? 'text-emerald-700' : 'text-stone-500'}`}>{item.active ? 'Publicado' : 'Oculto'}</p>
                             <div className="mt-3 flex gap-3">
                               <button type="button" disabled={busy} onClick={() => editProduct(item)} className="flex items-center gap-1 text-xs font-semibold text-[#315343] hover:underline disabled:opacity-50"><Pencil size={14} /> Editar</button>
@@ -457,4 +502,22 @@ export default function DashboardPage() {
 function messageFrom(body: { message?: string | string[] }, fallback: string) {
   if (Array.isArray(body.message)) return body.message.join('. ');
   return body.message || fallback;
+}
+
+function discountedPriceCents(product: ProductForm) {
+  const base = Math.round((Number(product.price) || 0) * 100);
+  if (!product.discountEnabled) return base;
+  return Math.round(base * (1 - (Number(product.discountPercent) || 0) / 100));
+}
+
+function discountPercent(priceCents: number, compareAtPriceCents: number | null) {
+  if (!compareAtPriceCents || compareAtPriceCents <= priceCents) return 0;
+  return Math.round((1 - priceCents / compareAtPriceCents) * 100);
+}
+
+function toLocalDateTime(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
