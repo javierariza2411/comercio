@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
 import { ArrowRight, Check, LockKeyhole, LogOut, Package, Pencil, Plus, Trash2, UploadCloud, Wallet, X } from 'lucide-react';
-import { formatMoney, type Order } from '@smartcommerce/shared';
+import { formatMoney, type Order, type OrderStatus } from '@smartcommerce/shared';
 
 type PaymentForm = {
   bankTransferEnabled: boolean;
@@ -284,6 +284,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function updateOrderStatus(orderNumber: string, status: OrderStatus) {
+    setError('');
+    setBusy(true);
+    try {
+      const response = await fetch(`${apiUrl}/orders/${encodeURIComponent(orderNumber)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(messageFrom(result, 'No pudimos actualizar el pedido.'));
+      await loadOrders(token);
+      setNotice(`Pedido ${orderNumber}: ${orderStatusLabel(status)}.`);
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : 'No pudimos conectar con el servidor.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function signOut() {
     setToken('');
     setPayment(emptyPaymentForm);
@@ -475,14 +495,18 @@ export default function DashboardPage() {
                 {orders.map((order) => <article key={order.orderNumber} className="py-5">
                   <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                     <div>
-                      <p className="font-semibold">{order.orderNumber} <span className={`ml-2 text-xs font-medium ${order.status === 'PAID' ? 'text-emerald-800' : 'text-[#9a5b16]'}`}>{order.status === 'PAID' ? 'Transferencia confirmada' : 'Pendiente de transferencia'}</span></p>
+                      <p className="font-semibold">{order.orderNumber} <span className={`ml-2 text-xs font-medium ${['PAID', 'DELIVERED'].includes(order.status) ? 'text-emerald-800' : 'text-[#9a5b16]'}`}>{orderStatusLabel(order.status)}</span></p>
                       <p className="mt-1 text-sm text-stone-600">{order.customer.name} · {order.customer.phone} · {order.customer.city}</p>
                       <p className="mt-2 text-xs text-stone-500">{order.items.map((item) => `${item.quantity} × ${item.name}`).join(', ')}</p>
-                      <p className="mt-1 text-xs text-stone-500">{order.customer.address}</p>
+                      <p className="mt-1 text-xs text-stone-500">{order.customer.address}{order.customer.addressComplement ? ` · ${order.customer.addressComplement}` : ''}</p>
+                      {order.shipping?.name && <p className="mt-1 text-xs font-medium text-stone-600">Envío: {order.shipping.name}</p>}
                     </div>
                     <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
                       <p className="font-semibold">{formatMoney(order.totalCents, order.currency)}</p>
-                      {order.status === 'PENDING_TRANSFER' && <button onClick={() => confirmOrder(order.orderNumber)} className="border border-[#20352b] px-3 py-2 text-xs font-semibold text-[#20352b] hover:bg-[#20352b] hover:text-white">Confirmar pago recibido</button>}
+                      {order.status === 'PENDING_TRANSFER' && <button disabled={busy} onClick={() => confirmOrder(order.orderNumber)} className="border border-[#20352b] px-3 py-2 text-xs font-semibold text-[#20352b] hover:bg-[#20352b] hover:text-white disabled:opacity-50">Confirmar pago recibido</button>}
+                      <select disabled={busy} value={order.status} onChange={(event) => updateOrderStatus(order.orderNumber, event.target.value as OrderStatus)} aria-label={`Estado de ${order.orderNumber}`} className="border border-stone-300 bg-white px-2 py-2 text-xs outline-none">
+                        <option value="PENDING_TRANSFER">Pendiente de pago</option><option value="PAID">Pago confirmado</option><option value="PREPARING">Preparando</option><option value="SHIPPED">Enviado</option><option value="DELIVERED">Entregado</option><option value="CANCELLED">Cancelado</option><option value="REFUNDED">Reembolsado</option>
+                      </select>
                     </div>
                   </div>
                 </article>)}
@@ -520,4 +544,8 @@ function toLocalDateTime(value?: string) {
   const date = new Date(value);
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function orderStatusLabel(status: OrderStatus) {
+  return ({ PENDING_TRANSFER: 'Pendiente de pago', PAID: 'Pago confirmado', PREPARING: 'Preparando', SHIPPED: 'Enviado', DELIVERED: 'Entregado', PAYMENT_FAILED: 'Pago rechazado', REFUNDED: 'Reembolsado', CANCELLED: 'Cancelado' } satisfies Record<OrderStatus, string>)[status];
 }

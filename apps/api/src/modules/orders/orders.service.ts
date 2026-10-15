@@ -48,6 +48,10 @@ export class OrdersService {
       }
     }
     const settings = parseConfig(tenantSettingsSchema, tenant.settings);
+    const shippingZone = dto.shippingZoneId
+      ? await this.prisma.shippingZone.findFirst({ where: { id: dto.shippingZoneId, tenantId: tenant.id, active: true } })
+      : null;
+    if (dto.shippingZoneId && !shippingZone) throw new BadRequestException('La opción de envío ya no está disponible');
 
     const order = await this.prisma.$transaction(async (tx) => {
       const products = await tx.product.findMany({
@@ -81,7 +85,9 @@ export class OrdersService {
         });
       }
 
-      const totalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
+      const subtotalCents = lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
+      const shippingCents = shippingZone && (!shippingZone.freeAboveCents || subtotalCents < shippingZone.freeAboveCents) ? shippingZone.priceCents : 0;
+      const totalCents = subtotalCents + shippingCents;
       if (!Number.isSafeInteger(totalCents) || totalCents <= 0) throw new BadRequestException('El total del pedido no es válido');
 
       return tx.order.create({
@@ -95,16 +101,28 @@ export class OrdersService {
             phone: dto.phone,
             city: dto.city,
             address: dto.address,
+            lastName: dto.lastName ?? '',
+            document: dto.document ?? '',
+            addressComplement: dto.addressComplement ?? '',
+            region: dto.region ?? '',
+            postalCode: dto.postalCode ?? '',
           },
+          shipping: shippingZone ? { zoneId: shippingZone.id, name: shippingZone.name, etaMinDays: shippingZone.etaMinDays, etaMaxDays: shippingZone.etaMaxDays } : { name: 'Entrega acordada con el comercio' },
+          subtotalCents,
+          shippingCents,
           totalCents,
           currency: settings.currency,
-        },
+        } as Prisma.OrderUncheckedCreateInput,
       });
     });
+
+    const orderWithCheckout = order as typeof order & { subtotalCents: number; shippingCents: number };
 
     return {
       orderNumber: order.orderNumber,
       totalCents: order.totalCents,
+      subtotalCents: orderWithCheckout.subtotalCents,
+      shippingCents: orderWithCheckout.shippingCents,
       currency: order.currency,
       status: order.status,
       bankTransfer: {
@@ -115,6 +133,16 @@ export class OrdersService {
         instructions: payment.instructions,
       },
     };
+  }
+
+  async shippingZones(tenantSlug: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('Comercio no encontrado');
+    return this.prisma.shippingZone.findMany({
+      where: { tenantId: tenant.id, active: true },
+      orderBy: [{ priceCents: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, cities: true, priceCents: true, freeAboveCents: true, etaMinDays: true, etaMaxDays: true },
+    });
   }
 
   list(tenantId: string, limit = 100) {
@@ -128,6 +156,20 @@ export class OrdersService {
     });
     if (updated.count === 0) throw new NotFoundException('Pedido pendiente no encontrado');
     return this.prisma.order.findUnique({ where: { orderNumber } });
+  }
+
+  async updateStatus(tenantId: string, orderNumber: string, status: 'PAID' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED') {
+    const order = await this.prisma.order.findFirst({ where: { tenantId, orderNumber } });
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    return this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status,
+        paidAt: status === 'PAID' && !order.paidAt ? new Date() : undefined,
+        shippedAt: status === 'SHIPPED' ? new Date() : undefined,
+        deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
+      } as Prisma.OrderUncheckedUpdateInput,
+    });
   }
 }
 

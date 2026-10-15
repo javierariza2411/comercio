@@ -25,6 +25,7 @@ type Product = {
 };
 
 type CartEntry = { product: Product; quantity: number };
+type ShippingZone = { id: string; name: string; cities: string[]; priceCents: number; freeAboveCents: number | null; etaMinDays: number; etaMaxDays: number };
 
 // Imagen neutra de plataforma; cada tenant puede definir la suya en branding.placeholderImageUrl.
 const PLATFORM_PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="100%" height="100%" fill="#e7e5e4"/><text x="50%" y="50%" font-family="sans-serif" font-size="28" fill="#78716c" text-anchor="middle" dominant-baseline="middle">Sin imagen</text></svg>');
@@ -66,11 +67,13 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartEntry[]>([]);
+  const [shippingZones, setShippingZones] = useState<ShippingZone[]>([]);
+  const [shippingZoneId, setShippingZoneId] = useState('');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [tenant, setTenant] = useState<PublicTenant | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'not-found' | 'error'>('loading');
-  const [buyer, setBuyer] = useState({ name: '', email: '', phone: '', city: '', address: '' });
+  const [buyer, setBuyer] = useState({ name: '', lastName: '', email: '', document: '', phone: '', city: '', region: '', postalCode: '', address: '', addressComplement: '' });
   const [orderResult, setOrderResult] = useState<CreateOrderResponse | null>(null);
   const [checkoutError, setCheckoutError] = useState('');
   const [submittingOrder, setSubmittingOrder] = useState(false);
@@ -80,14 +83,20 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
     Promise.all([
       fetch(`${apiUrl}/tenants/public/${businessSlug}`),
       fetch(`${apiUrl}/catalog/public/${businessSlug}`),
+      fetch(`${apiUrl}/orders/${businessSlug}/shipping-zones`),
     ])
-      .then(async ([tenantResponse, catalogResponse]) => {
+      .then(async ([tenantResponse, catalogResponse, shippingResponse]) => {
         if (tenantResponse.status === 404) return setLoadState('not-found');
         if (!tenantResponse.ok || !catalogResponse.ok) return setLoadState('error');
         const [tenantData, catalogData] = await Promise.all([tenantResponse.json(), catalogResponse.json()]);
         if (cancelled) return;
         setTenant(tenantData);
         setProducts(toViewModel(catalogData, tenantData?.branding?.placeholderImageUrl || PLATFORM_PLACEHOLDER));
+        if (shippingResponse.ok) {
+          const zones = await shippingResponse.json();
+          setShippingZones(zones);
+          setShippingZoneId(zones[0]?.id || '');
+        }
         setLoadState('ready');
       })
       .catch(() => !cancelled && setLoadState('error'));
@@ -101,7 +110,10 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
   const brand = tenant?.branding ?? {};
   const themeVars = { '--brand': brand.primaryColor ?? '#111827', '--accent': brand.secondaryColor ?? '#f59e0b' } as React.CSSProperties;
   const categories = useMemo(() => ['Todos', ...Array.from(new Set(products.map((product) => product.category)))], [products]);
-  const cartTotal = cart.reduce((sum, entry) => sum + entry.product.priceCents * entry.quantity, 0);
+  const cartSubtotal = cart.reduce((sum, entry) => sum + entry.product.priceCents * entry.quantity, 0);
+  const selectedShipping = shippingZones.find((zone) => zone.id === shippingZoneId);
+  const shippingCents = selectedShipping && (!selectedShipping.freeAboveCents || cartSubtotal < selectedShipping.freeAboveCents) ? selectedShipping.priceCents : 0;
+  const cartTotal = cartSubtotal + shippingCents;
 
   function addToCart(product: Product) {
     setCart((current) => {
@@ -125,7 +137,7 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
       const response = await fetch(`${apiUrl}/orders/${businessSlug}/bank-transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...buyer, email: buyer.email.trim() || undefined, items: cart.map(({ product, quantity }) => ({ productSlug: product.slug, quantity })) }),
+        body: JSON.stringify({ ...buyer, email: buyer.email.trim() || undefined, shippingZoneId: shippingZoneId || undefined, items: cart.map(({ product, quantity }) => ({ productSlug: product.slug, quantity })) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'No pudimos crear el pedido. Verifica los datos e inténtalo otra vez.');
@@ -360,13 +372,12 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
 
       {checkoutOpen && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[#101812]/65 p-0 backdrop-blur-sm sm:items-center sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setCheckoutOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="checkout-title" className="relative max-h-[94dvh] w-full max-w-2xl overflow-y-auto bg-[#f7f7f3] p-5 sm:p-8">
+          <section role="dialog" aria-modal="true" aria-labelledby="checkout-title" className="relative max-h-[96dvh] w-full max-w-5xl overflow-y-auto bg-[#f7f7f3]">
             <button onClick={() => setCheckoutOpen(false)} aria-label="Cerrar bolsa" className="absolute right-3 top-3 grid size-10 place-items-center text-stone-600"><X size={19} /></button>
-            <p className="text-xs font-semibold uppercase text-[#92784e]">Compra directa</p>
-            <h2 id="checkout-title" className="mt-2 font-serif text-3xl">{orderResult ? 'Pedido creado' : 'Tu bolsa'}</h2>
+            <div className="border-b border-stone-200 px-5 py-5 sm:px-8"><p className="text-xs font-semibold uppercase text-[#92784e]">Compra segura</p><h2 id="checkout-title" className="mt-1 font-serif text-3xl">{orderResult ? 'Pedido creado' : 'Finalizar compra'}</h2></div>
 
             {orderResult ? (
-              <div className="mt-6 space-y-4">
+              <div className="space-y-4 p-5 sm:p-8">
                 <p className="text-sm text-stone-600">Pedido <strong className="text-stone-900">{orderResult.orderNumber}</strong> · Total <strong className="text-stone-900">{formatMoney(orderResult.totalCents, orderResult.currency)}</strong></p>
                 <div className="border border-stone-300 bg-white p-5">
                   <h3 className="font-semibold">Transfiere a esta cuenta</h3>
@@ -379,28 +390,39 @@ export default function Storefront({ businessSlug }: { businessSlug: string }) {
                 <button onClick={() => setCheckoutOpen(false)} className="w-full bg-[#1d2923] px-4 py-3 text-sm font-semibold text-white">Entendido</button>
               </div>
             ) : (
-              <>
-                {cart.length ? <div className="mt-5 divide-y divide-stone-300 border-y border-stone-300">
-                  {cart.map(({ product, quantity }) => <div key={product.slug} className="flex items-center justify-between gap-4 py-3">
-                    <div className="min-w-0"><p className="truncate text-sm font-semibold">{product.name}</p><p className="text-xs text-stone-500">{formatMoney(product.priceCents, product.currency)} c/u</p></div>
-                    <div className="flex items-center gap-2"><button onClick={() => changeQuantity(product.slug, -1)} aria-label={`Quitar una unidad de ${product.name}`} className="grid size-8 place-items-center border border-stone-300"><Minus size={14} /></button><span className="w-5 text-center text-sm">{quantity}</span><button onClick={() => changeQuantity(product.slug, 1)} aria-label={`Agregar una unidad de ${product.name}`} className="grid size-8 place-items-center border border-stone-300"><Plus size={14} /></button></div>
-                  </div>)}
-                </div> : <p className="mt-5 text-sm text-stone-500">Tu bolsa está vacía. Agrega un modelo de la colección para continuar.</p>}
-                <p className="mt-4 flex justify-between text-base font-semibold"><span>Total</span><span>{formatMoney(cartTotal, currency)}</span></p>
-                {!paymentSettings?.bankTransferEnabled && <p className="mt-4 border-l-2 border-[#a33c2f] bg-white px-4 py-3 text-sm leading-6 text-stone-600">El comercio aún no ha configurado una cuenta para transferencias. No podemos recibir pedidos pagados hasta que el vendedor complete esa configuración.</p>}
-                <form onSubmit={submitOrder} className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <input required minLength={2} maxLength={120} value={buyer.name} onChange={(event) => setBuyer({ ...buyer, name: event.target.value })} placeholder="Nombre completo" aria-label="Nombre completo" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+              <div className="grid lg:grid-cols-[1.15fr_.85fr]">
+                <form onSubmit={submitOrder} className="grid gap-5 p-5 sm:p-8">
+                  <fieldset className="grid gap-3 sm:grid-cols-2"><legend className="mb-3 text-lg font-semibold sm:col-span-2">Contacto</legend>
+                  <input required type="email" value={buyer.email} onChange={(event) => setBuyer({ ...buyer, email: event.target.value })} placeholder="Correo electrónico" aria-label="Correo" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b] sm:col-span-2" />
+                  </fieldset>
+                  <fieldset className="grid gap-3 sm:grid-cols-2"><legend className="mb-3 text-lg font-semibold sm:col-span-2">Entrega</legend>
+                  <input required minLength={2} maxLength={120} value={buyer.name} onChange={(event) => setBuyer({ ...buyer, name: event.target.value })} placeholder="Nombre" aria-label="Nombre" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                  <input required minLength={2} maxLength={120} value={buyer.lastName} onChange={(event) => setBuyer({ ...buyer, lastName: event.target.value })} placeholder="Apellidos" aria-label="Apellidos" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                  <input maxLength={40} value={buyer.document} onChange={(event) => setBuyer({ ...buyer, document: event.target.value })} placeholder="Cédula (opcional)" aria-label="Cédula" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b] sm:col-span-2" />
+                  <input required minLength={5} maxLength={240} value={buyer.address} onChange={(event) => setBuyer({ ...buyer, address: event.target.value })} placeholder="Dirección" aria-label="Dirección" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b] sm:col-span-2" />
+                  <input maxLength={120} value={buyer.addressComplement} onChange={(event) => setBuyer({ ...buyer, addressComplement: event.target.value })} placeholder="Casa, apartamento, etc. (opcional)" aria-label="Complemento de dirección" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b] sm:col-span-2" />
                   <input required type="tel" minLength={7} maxLength={30} value={buyer.phone} onChange={(event) => setBuyer({ ...buyer, phone: event.target.value })} placeholder="Teléfono" aria-label="Teléfono" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
-                  <input type="email" value={buyer.email} onChange={(event) => setBuyer({ ...buyer, email: event.target.value })} placeholder="Correo (opcional)" aria-label="Correo opcional" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
                   <input required minLength={2} maxLength={100} value={buyer.city} onChange={(event) => setBuyer({ ...buyer, city: event.target.value })} placeholder="Ciudad" aria-label="Ciudad" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
-                  <input required minLength={5} maxLength={240} value={buyer.address} onChange={(event) => setBuyer({ ...buyer, address: event.target.value })} placeholder="Dirección de entrega" aria-label="Dirección de entrega" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b] sm:col-span-2" />
+                  <input maxLength={100} value={buyer.region} onChange={(event) => setBuyer({ ...buyer, region: event.target.value })} placeholder="Departamento" aria-label="Departamento" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                  <input maxLength={20} value={buyer.postalCode} onChange={(event) => setBuyer({ ...buyer, postalCode: event.target.value })} placeholder="Código postal (opcional)" aria-label="Código postal" className="border border-stone-300 bg-white px-3 py-3 text-sm outline-none focus:border-[#53695b]" />
+                  </fieldset>
+                  <fieldset><legend className="mb-3 text-lg font-semibold">Método de envío</legend>
+                    <div className="space-y-2">{shippingZones.length ? shippingZones.map((zone) => <label key={zone.id} className={`flex cursor-pointer items-center justify-between border p-4 ${shippingZoneId === zone.id ? 'border-[#1d2923] bg-white' : 'border-stone-300'}`}><span className="flex items-center gap-3"><input type="radio" name="shipping" checked={shippingZoneId === zone.id} onChange={() => setShippingZoneId(zone.id)} /><span><strong className="block text-sm">{zone.name}</strong><small className="text-stone-500">{zone.etaMinDays}–{zone.etaMaxDays} días hábiles</small></span></span><strong className="text-sm">{zone.freeAboveCents && cartSubtotal >= zone.freeAboveCents ? 'Gratis' : formatMoney(zone.priceCents, currency)}</strong></label>) : <div className="border border-stone-300 bg-white p-4 text-sm">Entrega coordinada con el comercio</div>}</div>
+                  </fieldset>
+                  <fieldset><legend className="mb-3 text-lg font-semibold">Pago</legend><div className="border border-[#1d2923] bg-white p-4"><label className="flex items-center gap-3 text-sm font-semibold"><input type="radio" checked readOnly /> Transferencia bancaria</label><p className="mt-2 text-xs text-stone-500">Recibirás los datos de la cuenta al crear el pedido.</p></div><div className="mt-2 border border-dashed border-stone-300 p-4 text-sm text-stone-400">Mercado Pago · Próximamente</div></fieldset>
                   {checkoutError && <p role="alert" className="text-sm text-red-700 sm:col-span-2">{checkoutError}</p>}
-                  <button disabled={!cart.length || !paymentSettings?.bankTransferEnabled || submittingOrder} className="flex items-center justify-center gap-2 bg-[#1d2923] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#354b3e] disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2">
-                    <ShoppingBag size={16} /> {submittingOrder ? 'Creando pedido...' : 'Crear pedido por transferencia'}
+                  <button disabled={!cart.length || !paymentSettings?.bankTransferEnabled || submittingOrder} className="flex items-center justify-center gap-2 bg-[#1d2923] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#354b3e] disabled:cursor-not-allowed disabled:opacity-40">
+                    <ShoppingBag size={16} /> {submittingOrder ? 'Creando pedido...' : 'Confirmar pedido'}
                   </button>
-                  <p className="text-center text-xs text-stone-500 sm:col-span-2">Transferencia directa al comercio · Confirmación manual · Sin comisión de pasarela</p>
+                  <p className="text-center text-xs text-stone-500">Pago seguro · Inventario verificado al confirmar</p>
                 </form>
-              </>
+                <aside className="border-t border-stone-200 bg-[#eeeee9] p-5 sm:p-8 lg:border-l lg:border-t-0">
+                  <h3 className="font-semibold">Resumen del pedido</h3>
+                  {cart.length ? <div className="mt-4 divide-y divide-stone-300">{cart.map(({ product, quantity }) => <div key={product.slug} className="flex items-center gap-3 py-4"><div className="relative size-16 shrink-0 bg-white"><Image src={product.image} alt="" fill unoptimized className="object-cover" /><span className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-stone-700 text-[10px] text-white">{quantity}</span></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><div className="mt-2 flex items-center gap-2"><button onClick={() => changeQuantity(product.slug, -1)} className="grid size-7 place-items-center border border-stone-300"><Minus size={12} /></button><span className="text-xs">{quantity}</span><button onClick={() => changeQuantity(product.slug, 1)} className="grid size-7 place-items-center border border-stone-300"><Plus size={12} /></button></div></div><p className="text-sm font-semibold">{formatMoney(product.priceCents * quantity, product.currency)}</p></div>)}</div> : <p className="mt-5 text-sm text-stone-500">Tu bolsa está vacía.</p>}
+                  <dl className="mt-5 space-y-3 border-t border-stone-300 pt-5 text-sm"><div className="flex justify-between"><dt>Subtotal</dt><dd>{formatMoney(cartSubtotal, currency)}</dd></div><div className="flex justify-between"><dt>Envío</dt><dd>{shippingCents ? formatMoney(shippingCents, currency) : 'Gratis / por acordar'}</dd></div><div className="flex justify-between border-t border-stone-300 pt-4 text-lg font-bold"><dt>Total</dt><dd>{formatMoney(cartTotal, currency)}</dd></div></dl>
+                  {!paymentSettings?.bankTransferEnabled && <p className="mt-5 border-l-2 border-[#a33c2f] bg-white px-4 py-3 text-sm leading-6 text-stone-600">El comercio debe configurar su cuenta de transferencias antes de recibir pedidos.</p>}
+                </aside>
+              </div>
             )}
           </section>
         </div>

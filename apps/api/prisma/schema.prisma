@@ -42,6 +42,11 @@ enum PaymentMethod {
 enum OrderStatus {
   PENDING_TRANSFER
   PAID
+  PREPARING
+  SHIPPED
+  DELIVERED
+  PAYMENT_FAILED
+  REFUNDED
   CANCELLED
 }
 
@@ -423,11 +428,16 @@ model Order {
   orderNumber   String        @unique
   items         Json
   customer      Json
+  shipping      Json          @default("{}")
+  subtotalCents Int           @default(0)
+  shippingCents Int           @default(0)
   totalCents    Int
   currency      String        @default("COP")
   paymentMethod PaymentMethod @default(BANK_TRANSFER)
   status        OrderStatus   @default(PENDING_TRANSFER)
   paidAt        DateTime?
+  shippedAt     DateTime?
+  deliveredAt   DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 

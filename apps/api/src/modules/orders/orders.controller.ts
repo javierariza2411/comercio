@@ -6,7 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { CreateOrderDto } from './dto/order.dto';
+import { CreateOrderDto, UpdateOrderStatusDto } from './dto/order.dto';
 import { OrdersService } from './orders.service';
 
 @ApiTags('orders')
@@ -19,6 +19,12 @@ export class OrdersController {
   @ApiOperation({ summary: 'Crear pedido con pago por transferencia (público)' })
   create(@Param('tenantSlug') tenantSlug: string, @Body() dto: CreateOrderDto) {
     return this.ordersService.createBankTransferOrder(tenantSlug, dto);
+  }
+
+  @Get(':tenantSlug/shipping-zones')
+  @ApiOperation({ summary: 'Listar opciones públicas de envío' })
+  shippingZones(@Param('tenantSlug') tenantSlug: string) {
+    return this.ordersService.shippingZones(tenantSlug);
   }
 
   @Get()
@@ -34,5 +40,13 @@ export class OrdersController {
   @Roles(UserRole.OWNER, UserRole.ADMIN)
   confirmTransfer(@CurrentUser('tenantId') tenantId: string, @Param('orderNumber') orderNumber: string) {
     return this.ordersService.confirmTransfer(tenantId, orderNumber);
+  }
+
+  @Patch(':orderNumber/status')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
+  updateStatus(@CurrentUser('tenantId') tenantId: string, @Param('orderNumber') orderNumber: string, @Body() dto: UpdateOrderStatusDto) {
+    return this.ordersService.updateStatus(tenantId, orderNumber, dto.status);
   }
 }

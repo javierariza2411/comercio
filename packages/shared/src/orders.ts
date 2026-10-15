@@ -1,4 +1,4 @@
-export type OrderStatus = 'PENDING_TRANSFER' | 'PAID' | 'CANCELLED';
+export type OrderStatus = 'PENDING_TRANSFER' | 'PAID' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'PAYMENT_FAILED' | 'REFUNDED' | 'CANCELLED';
 
 export interface OrderLine {
   productId: string;
@@ -15,6 +15,11 @@ export interface OrderCustomer {
   phone: string;
   city: string;
   address: string;
+  lastName?: string;
+  document?: string;
+  addressComplement?: string;
+  region?: string;
+  postalCode?: string;
 }
 
 export interface Order {
@@ -22,6 +27,9 @@ export interface Order {
   orderNumber: string;
   items: OrderLine[];
   customer: OrderCustomer;
+  shipping: { name?: string; etaMinDays?: number; etaMaxDays?: number };
+  subtotalCents: number;
+  shippingCents: number;
   totalCents: number;
   currency: string;
   status: OrderStatus;
@@ -31,6 +39,8 @@ export interface Order {
 
 export interface CreateOrderResponse {
   orderNumber: string;
+  subtotalCents: number;
+  shippingCents: number;
   totalCents: number;
   currency: string;
   status: OrderStatus;
