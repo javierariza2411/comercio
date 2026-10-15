@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { ArrowRight, Check, ImagePlus, LockKeyhole, LogOut, Package, Plus, Wallet } from 'lucide-react';
+import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
+import { ArrowRight, Check, LockKeyhole, LogOut, Package, Pencil, Plus, Trash2, UploadCloud, Wallet, X } from 'lucide-react';
 import { formatMoney, type Order } from '@smartcommerce/shared';
 
 type PaymentForm = {
@@ -16,6 +16,7 @@ type PaymentForm = {
 type CatalogProduct = {
   id: string;
   name: string;
+  description: string;
   priceCents: number;
   currency: string;
   stock: number;
@@ -50,9 +51,17 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [product, setProduct] = useState<ProductForm>(emptyProductForm);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [existingImage, setExistingImage] = useState('');
+  const [imagePreview, setImagePreview] = useState('');
+  const [draggingImage, setDraggingImage] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+  }, [imagePreview]);
 
   async function loadOrders(accessToken: string) {
     const response = await fetch(`${apiUrl}/orders`, {
@@ -94,13 +103,13 @@ export default function DashboardPage() {
     }
   }
 
-  async function createProduct(event: FormEvent<HTMLFormElement>) {
+  async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      let images: string[] = [];
+      let images: string[] = existingImage ? [existingImage] : [];
       if (product.image) {
         const formData = new FormData();
         formData.append('file', product.image);
@@ -114,8 +123,8 @@ export default function DashboardPage() {
         images = [upload.publicUrl];
       }
 
-      const response = await fetch(`${apiUrl}/catalog/products`, {
-        method: 'POST',
+      const response = await fetch(`${apiUrl}/catalog/products${editingProductId ? `/${editingProductId}` : ''}`, {
+        method: editingProductId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: product.name,
@@ -128,10 +137,11 @@ export default function DashboardPage() {
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(messageFrom(result, 'No pudimos crear el producto.'));
-      setProduct(emptyProductForm);
+      if (!response.ok) throw new Error(messageFrom(result, `No pudimos ${editingProductId ? 'actualizar' : 'crear'} el producto.`));
+      const wasEditing = Boolean(editingProductId);
+      resetProductForm();
       await loadProducts(token);
-      setNotice(`Producto “${result.name}” creado correctamente.`);
+      setNotice(`Producto “${result.name}” ${wasEditing ? 'actualizado' : 'creado'} correctamente.`);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'No pudimos conectar con el servidor.');
     } finally {
@@ -141,7 +151,77 @@ export default function DashboardPage() {
 
   function selectImage(event: ChangeEvent<HTMLInputElement>) {
     const image = event.target.files?.[0] ?? null;
-    setProduct({ ...product, image });
+    if (image) setSelectedImage(image);
+    event.target.value = '';
+  }
+
+  function setSelectedImage(image: File) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowed.includes(image.type)) {
+      setError('Selecciona una imagen JPEG, PNG, WebP o GIF.');
+      return;
+    }
+    if (image.size > 5 * 1024 * 1024) {
+      setError('La imagen no puede superar los 5 MB.');
+      return;
+    }
+    setError('');
+    setExistingImage('');
+    setImagePreview(URL.createObjectURL(image));
+    setProduct((current) => ({ ...current, image }));
+  }
+
+  function dropImage(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDraggingImage(false);
+    const image = event.dataTransfer.files?.[0];
+    if (image) setSelectedImage(image);
+  }
+
+  function editProduct(item: CatalogProduct) {
+    resetProductForm();
+    setEditingProductId(item.id);
+    setExistingImage(item.images[0] || '');
+    setProduct({
+      name: item.name,
+      description: item.description || '',
+      price: String(item.priceCents / 100),
+      stock: String(item.stock),
+      image: null,
+    });
+    setError('');
+    setNotice('');
+    window.scrollTo({ top: 180, behavior: 'smooth' });
+  }
+
+  function resetProductForm() {
+    setProduct(emptyProductForm);
+    setEditingProductId(null);
+    setExistingImage('');
+    setImagePreview('');
+    setDraggingImage(false);
+  }
+
+  async function deleteProduct(item: CatalogProduct) {
+    if (!window.confirm(`¿Eliminar “${item.name}”? Esta acción no se puede deshacer.`)) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await fetch(`${apiUrl}/catalog/products/${item.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(messageFrom(result, 'No pudimos eliminar el producto.'));
+      if (editingProductId === item.id) resetProductForm();
+      await loadProducts(token);
+      setNotice(`Producto “${item.name}” eliminado.`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'No pudimos conectar con el servidor.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function savePayment(event: FormEvent<HTMLFormElement>) {
@@ -187,6 +267,9 @@ export default function DashboardPage() {
     setOrders([]);
     setProducts([]);
     setProduct(emptyProductForm);
+    setEditingProductId(null);
+    setExistingImage('');
+    setImagePreview('');
     setBusinessName('');
     setNotice('');
     setError('');
@@ -233,8 +316,11 @@ export default function DashboardPage() {
                 <h2 className="mt-1 font-serif text-3xl">Productos e imágenes</h2>
               </div>
               <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-                <form onSubmit={createProduct} className="border border-stone-200 bg-white p-5 sm:p-6">
-                  <h3 className="flex items-center gap-2 font-semibold"><Plus size={18} /> Nuevo producto</h3>
+                <form onSubmit={saveProduct} className="border border-stone-200 bg-white p-5 sm:p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="flex items-center gap-2 font-semibold">{editingProductId ? <Pencil size={18} /> : <Plus size={18} />} {editingProductId ? 'Editar producto' : 'Nuevo producto'}</h3>
+                    {editingProductId && <button type="button" onClick={resetProductForm} className="flex items-center gap-1 text-xs font-semibold text-stone-500 hover:text-stone-950"><X size={15} /> Cancelar</button>}
+                  </div>
                   <div className="mt-5 space-y-4">
                     <label className="block text-sm font-medium">Nombre
                       <input required maxLength={200} value={product.name} onChange={(event) => setProduct({ ...product, name: event.target.value })} className="mt-2 w-full border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" />
@@ -250,15 +336,23 @@ export default function DashboardPage() {
                         <input required min="0" step="1" type="number" value={product.stock} onChange={(event) => setProduct({ ...product, stock: event.target.value })} className="mt-2 w-full border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" />
                       </label>
                     </div>
-                    <label className="block cursor-pointer border border-dashed border-stone-400 bg-stone-50 p-4 text-center hover:border-[#53695b]">
-                      <ImagePlus className="mx-auto text-stone-500" size={24} />
-                      <span className="mt-2 block text-sm font-semibold">{product.image?.name || 'Seleccionar imagen'}</span>
+                    <label
+                      onDragEnter={(event) => { event.preventDefault(); setDraggingImage(true); }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragLeave={(event) => { event.preventDefault(); setDraggingImage(false); }}
+                      onDrop={dropImage}
+                      className={`block cursor-pointer border border-dashed p-4 text-center transition ${draggingImage ? 'border-[#20352b] bg-emerald-50' : 'border-stone-400 bg-stone-50 hover:border-[#53695b]'}`}
+                    >
+                      {(imagePreview || existingImage) ? (
+                        <img src={imagePreview || existingImage} alt="Vista previa del producto" className="mx-auto h-40 w-full object-contain" />
+                      ) : <UploadCloud className="mx-auto text-stone-500" size={28} />}
+                      <span className="mt-2 block text-sm font-semibold">{product.image?.name || (existingImage ? 'Imagen actual' : 'Arrastra una imagen o haz clic')}</span>
                       <span className="mt-1 block text-xs text-stone-500">JPEG, PNG, WebP o GIF · máximo 5 MB</span>
                       <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={selectImage} className="sr-only" />
                     </label>
                   </div>
                   <button disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 bg-[#20352b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">
-                    <Package size={16} /> {busy ? 'Guardando...' : 'Publicar producto'}
+                    <Package size={16} /> {busy ? 'Guardando...' : editingProductId ? 'Guardar cambios' : 'Publicar producto'}
                   </button>
                 </form>
 
@@ -273,6 +367,10 @@ export default function DashboardPage() {
                             <p className="truncate font-semibold">{item.name}</p>
                             <p className="mt-1 text-sm text-stone-600">{formatMoney(item.priceCents, item.currency)} · {item.stock} disponibles</p>
                             <p className={`mt-2 text-xs font-medium ${item.active ? 'text-emerald-700' : 'text-stone-500'}`}>{item.active ? 'Publicado' : 'Oculto'}</p>
+                            <div className="mt-3 flex gap-3">
+                              <button type="button" disabled={busy} onClick={() => editProduct(item)} className="flex items-center gap-1 text-xs font-semibold text-[#315343] hover:underline disabled:opacity-50"><Pencil size={14} /> Editar</button>
+                              <button type="button" disabled={busy} onClick={() => deleteProduct(item)} className="flex items-center gap-1 text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"><Trash2 size={14} /> Eliminar</button>
+                            </div>
                           </div>
                         </article>
                       ))}
