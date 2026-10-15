@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConversationStatus, Prisma } from '@prisma/client';
-import { formatMoney } from '@smartcommerce/shared';
+import { formatMoney, type OrderStatus } from '@smartcommerce/shared';
 import { chatSettingsSchema, parseConfig, tenantSettingsSchema } from '../../../config/tenant-config';
 import { PrismaService } from '../../../prisma/prisma.module';
 import { ChatService } from '../../chat/chat.service';
@@ -368,7 +368,17 @@ export class ToolRegistry {
         const phone = str(args.telefono).replace(/\D/g, '');
         // Sin verificación de teléfono solo se revela el estado, nunca datos del cliente.
         const verified = phone.length >= 4 && (customer.phone ?? '').replace(/\D/g, '').endsWith(phone.slice(-4));
-        const estado = { PENDING_TRANSFER: 'pendiente de confirmación de pago', PAID: 'pago confirmado, en preparación', CANCELLED: 'cancelado' }[order.status];
+        const estados: Record<OrderStatus, string> = {
+          PENDING_TRANSFER: 'pendiente de confirmación de pago',
+          PAID: 'con el pago confirmado',
+          PREPARING: 'en preparación',
+          SHIPPED: 'enviado',
+          DELIVERED: 'entregado',
+          PAYMENT_FAILED: 'con el pago rechazado',
+          REFUNDED: 'reembolsado',
+          CANCELLED: 'cancelado',
+        };
+        const estado = estados[order.status];
         const mensaje = `El pedido ${order.orderNumber} está ${estado}${verified ? ` por un total de ${fmt(order.totalCents)}` : ''}.`;
         return { data: { numero: order.orderNumber, estado, total: verified ? fmt(order.totalCents) : undefined, fecha: order.createdAt.toISOString().slice(0, 10), mensaje }, facts: verified ? [fmt(order.totalCents)] : [] };
       },
