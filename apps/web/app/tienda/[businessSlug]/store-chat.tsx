@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ArrowUp, Check, MessageCircle, ShoppingBag, X } from 'lucide-react';
 
 import { formatMoney } from '@smartcommerce/shared';
@@ -13,6 +13,8 @@ export type ChatProduct = {
   description: string;
   category: string;
   tags: string[];
+  compareAtPriceCents?: number | null;
+  imageUrl?: string | null;
 };
 
 type ChatMessage = {
@@ -31,7 +33,8 @@ export type StoreChatProps = {
   products: ChatProduct[];
 };
 
-const quickReplies = ['Pagos y cuenta', 'Envíos', 'Garantía', 'Cambios y devoluciones'];
+const quickReplies = ['Recomiéndame un producto', 'Ofertas vigentes', 'Envíos', 'Garantía y devoluciones', 'Medios de pago'];
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const normalize = (value: string) => value.toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -98,6 +101,8 @@ function respondTo(message: string, products: ChatProduct[], storeName: string):
 export default function StoreChat({ businessSlug, storeName, assistantName, welcomeMessage, whatsappNumber, products }: StoreChatProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [sessionToken, setSessionToken] = useState('');
+  const [sending, setSending] = useState(false);
   const [replies, setReplies] = useState(quickReplies);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, role: 'assistant', text: welcomeMessage || `¡Hola! Soy el asistente de ${storeName}. Puedo ayudarte a elegir un producto o resolver dudas sobre tu compra.` },
@@ -109,22 +114,50 @@ export default function StoreChat({ businessSlug, storeName, assistantName, welc
     return () => window.removeEventListener('open-store-assistant', openAssistant);
   }, []);
 
-  function sendMessage(value: string) {
+  const startSession = useCallback(async () => {
+    const storageKey = `smartcommerce:visitor:${businessSlug}`;
+    const anonId = window.localStorage.getItem(storageKey) || undefined;
+    const response = await fetch(`${apiUrl}/store-assistant/${encodeURIComponent(businessSlug)}/session`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anonId }),
+    });
+    if (!response.ok) throw new Error('No pudimos iniciar el asistente.');
+    const session = await response.json();
+    window.localStorage.setItem(storageKey, session.anonId);
+    setSessionToken(session.sessionToken);
+    if (session.config?.quickReplies?.length) setReplies(session.config.quickReplies);
+    return session.sessionToken as string;
+  }, [businessSlug]);
+
+  async function sendMessage(value: string) {
     const text = value.trim();
-    if (!text) return;
-    const response = respondTo(text, products, storeName);
-    setMessages((current) => [
-      ...current,
-      { id: Date.now(), role: 'visitor', text },
-      { id: Date.now() + 1, role: 'assistant', ...response },
-    ]);
-    setReplies(response.replies);
+    if (!text || sending) return;
+    setMessages((current) => [...current, { id: Date.now(), role: 'visitor', text }]);
     setDraft('');
+    setSending(true);
+    try {
+      const token = sessionToken || await startSession();
+      const request = await fetch(`${apiUrl}/store-assistant/${encodeURIComponent(businessSlug)}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text }),
+      });
+      if (!request.ok) throw new Error('No pudimos procesar la consulta.');
+      const response = await request.json();
+      const firstProduct = response.products?.[0];
+      setMessages((current) => [...current, { id: Date.now() + 1, role: 'assistant', text: response.text, product: firstProduct ? { ...firstProduct, category: '', tags: [] } : undefined }]);
+      setReplies(response.replies?.length ? response.replies : quickReplies);
+    } catch {
+      const fallback = respondTo(text, products, storeName);
+      setMessages((current) => [...current, { id: Date.now() + 1, role: 'assistant', ...fallback }]);
+      setReplies(fallback.replies);
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    sendMessage(draft);
+    void sendMessage(draft);
   }
 
   const whatsappUrl = (product?: ChatProduct) => {
@@ -163,6 +196,7 @@ export default function StoreChat({ businessSlug, storeName, assistantName, welc
                         <p className="font-semibold text-stone-900">{message.product.name}</p>
                         <p className="mt-1 text-xs text-stone-500">{message.product.description}</p>
                         <p className="mt-2 font-semibold text-stone-900">{formatMoney(message.product.priceCents, message.product.currency)}</p>
+                        {message.product.compareAtPriceCents ? <p className="text-xs text-stone-400 line-through">{formatMoney(message.product.compareAtPriceCents, message.product.currency)}</p> : null}
                         <button onClick={() => setOpen(false)} className="mt-3 w-full bg-[#26372e] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#354b3e]">Seguir explorando la tienda</button>
                       </div>
                     </div>
@@ -178,14 +212,14 @@ export default function StoreChat({ businessSlug, storeName, assistantName, welc
           <div className="border-t border-stone-200 bg-white px-4 pb-4 pt-3">
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
               {replies.map((reply) => (
-                <button key={reply} onClick={() => sendMessage(reply)} className="shrink-0 rounded-full border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:border-[#596b5e] hover:bg-stone-50">{reply}</button>
+                <button key={reply} disabled={sending} onClick={() => void sendMessage(reply)} className="shrink-0 rounded-full border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:border-[#596b5e] hover:bg-stone-50 disabled:opacity-50">{reply}</button>
               ))}
             </div>
             <form onSubmit={handleSubmit} className="flex items-center gap-2 rounded-xl border border-stone-300 bg-white p-1.5 pl-3 focus-within:border-[#596b5e]">
               <input aria-label="Escribe tu pregunta" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Escribe tu pregunta..." className="min-w-0 flex-1 bg-transparent py-2 text-sm text-stone-800 outline-none placeholder:text-stone-400" />
-              <button type="submit" aria-label="Enviar mensaje" disabled={!draft.trim()} className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#26372e] text-white transition hover:bg-[#354b3e] disabled:cursor-not-allowed disabled:opacity-40"><ArrowUp size={17} /></button>
+              <button type="submit" aria-label="Enviar mensaje" disabled={!draft.trim() || sending} className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#26372e] text-white transition hover:bg-[#354b3e] disabled:cursor-not-allowed disabled:opacity-40"><ArrowUp size={17} /></button>
             </form>
-            <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-stone-400"><Check size={11} /> Respuestas automáticas de demostración</p>
+            <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-stone-400"><Check size={11} /> Agente especializado · datos verificados de la tienda</p>
           </div>
         </section>
       )}

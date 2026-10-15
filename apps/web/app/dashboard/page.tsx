@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
-import { ArrowRight, Check, LockKeyhole, LogOut, Package, Pencil, Plus, Trash2, UploadCloud, Wallet, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, LockKeyhole, LogOut, Package, Pencil, Plus, Trash2, UploadCloud, Wallet, X } from 'lucide-react';
 import { formatMoney, type Order, type OrderStatus } from '@smartcommerce/shared';
 
 type PaymentForm = {
@@ -27,6 +27,7 @@ type CatalogProduct = {
 };
 
 type OfferMetadata = { enabled: boolean; percent: number; startsAt?: string; endsAt?: string };
+type FaqItem = { id: string; question: string; answer: string; keywords: string[]; category: string; active: boolean };
 
 type ProductForm = {
   name: string;
@@ -58,6 +59,8 @@ export default function DashboardPage() {
   const [payment, setPayment] = useState<PaymentForm>(emptyPaymentForm);
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [faqs, setFaqs] = useState<FaqItem[]>([]);
+  const [faqForm, setFaqForm] = useState({ question: '', answer: '', keywords: '' });
   const [product, setProduct] = useState<ProductForm>(emptyProductForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [existingImage, setExistingImage] = useState('');
@@ -87,6 +90,12 @@ export default function DashboardPage() {
     setProducts(await response.json());
   }
 
+  async function loadFaqs(accessToken: string) {
+    const response = await fetch(`${apiUrl}/faq?includeInactive=true`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) throw new Error('No pudimos cargar el conocimiento del asistente.');
+    setFaqs(await response.json());
+  }
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -102,7 +111,7 @@ export default function DashboardPage() {
       setToken(result.accessToken);
       setBusinessName(result.tenant?.name || 'Tu tienda');
       setPayment({ ...emptyPaymentForm, ...result.tenant?.paymentSettings });
-      await Promise.all([loadOrders(result.accessToken), loadProducts(result.accessToken)]);
+      await Promise.all([loadOrders(result.accessToken), loadProducts(result.accessToken), loadFaqs(result.accessToken)]);
       setCredentials({ email: '', password: '' });
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'No pudimos conectar con el servidor.');
@@ -268,6 +277,35 @@ export default function DashboardPage() {
     }
   }
 
+  async function createFaq(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch(`${apiUrl}/faq`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question: faqForm.question, answer: faqForm.answer, keywords: faqForm.keywords.split(',').map((item) => item.trim()).filter(Boolean), category: 'tienda', active: true }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(messageFrom(result, 'No pudimos guardar la respuesta.'));
+      setFaqForm({ question: '', answer: '', keywords: '' });
+      await loadFaqs(token);
+      setNotice('Conocimiento agregado al asistente.');
+    } catch (faqError) { setError(faqError instanceof Error ? faqError.message : 'No pudimos conectar con el servidor.'); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteFaq(item: FaqItem) {
+    if (!window.confirm(`¿Eliminar la respuesta “${item.question}”?`)) return;
+    setBusy(true); setError('');
+    try {
+      const response = await fetch(`${apiUrl}/faq/${item.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json();
+      if (!response.ok) throw new Error(messageFrom(result, 'No pudimos eliminar la respuesta.'));
+      await loadFaqs(token); setNotice('Respuesta eliminada del conocimiento.');
+    } catch (faqError) { setError(faqError instanceof Error ? faqError.message : 'No pudimos conectar con el servidor.'); }
+    finally { setBusy(false); }
+  }
+
   async function confirmOrder(orderNumber: string) {
     setError('');
     try {
@@ -309,6 +347,7 @@ export default function DashboardPage() {
     setPayment(emptyPaymentForm);
     setOrders([]);
     setProducts([]);
+    setFaqs([]);
     setProduct(emptyProductForm);
     setEditingProductId(null);
     setExistingImage('');
@@ -442,6 +481,20 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </div>
+              </div>
+            </section>
+
+            <section className="mt-12">
+              <div className="border-b border-stone-300 pb-4"><p className="text-xs font-semibold uppercase text-[#92784e]">Agente especializado</p><h2 className="mt-1 font-serif text-3xl">Conocimiento del asistente</h2><p className="mt-2 max-w-2xl text-sm text-stone-600">Agrega respuestas verificadas. El agente consulta esta información desde Neon y no utiliza servicios de IA externos.</p></div>
+              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+                <form onSubmit={createFaq} className="border border-stone-200 bg-white p-5 sm:p-6">
+                  <h3 className="flex items-center gap-2 font-semibold"><BookOpen size={18} /> Nueva respuesta</h3>
+                  <label className="mt-5 block text-sm font-medium">Pregunta frecuente<input required minLength={3} maxLength={300} value={faqForm.question} onChange={(event) => setFaqForm({ ...faqForm, question: event.target.value })} placeholder="¿Cuánto dura la garantía?" className="mt-2 w-full border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" /></label>
+                  <label className="mt-4 block text-sm font-medium">Respuesta verificada<textarea required minLength={3} maxLength={2000} rows={5} value={faqForm.answer} onChange={(event) => setFaqForm({ ...faqForm, answer: event.target.value })} placeholder="Escribe la política exacta del comercio." className="mt-2 w-full resize-y border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" /></label>
+                  <label className="mt-4 block text-sm font-medium">Palabras clave <span className="font-normal text-stone-500">(separadas por coma)</span><input maxLength={400} value={faqForm.keywords} onChange={(event) => setFaqForm({ ...faqForm, keywords: event.target.value })} placeholder="garantía, reparación, cobertura" className="mt-2 w-full border border-stone-300 px-3 py-3 outline-none focus:border-[#53695b]" /></label>
+                  <button disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 bg-[#20352b] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"><Plus size={16} /> Guardar conocimiento</button>
+                </form>
+                <div className="border border-stone-200 bg-white p-5 sm:p-6"><div className="flex items-center justify-between"><h3 className="font-semibold">Respuestas publicadas</h3><span className="text-xs text-stone-500">{faqs.length} en total</span></div>{!faqs.length ? <p className="py-10 text-center text-sm text-stone-500">Aún no hay respuestas personalizadas.</p> : <div className="mt-4 divide-y divide-stone-200">{faqs.map((faq) => <article key={faq.id} className="py-4 first:pt-0"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{faq.question}</p><p className="mt-1 text-sm leading-6 text-stone-600">{faq.answer}</p>{faq.keywords.length ? <p className="mt-2 text-xs text-stone-400">{faq.keywords.join(' · ')}</p> : null}</div><button disabled={busy} onClick={() => deleteFaq(faq)} aria-label={`Eliminar ${faq.question}`} className="shrink-0 text-red-700 disabled:opacity-50"><Trash2 size={16} /></button></div></article>)}</div>}</div>
               </div>
             </section>
 
